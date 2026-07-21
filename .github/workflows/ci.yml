@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Start static server
+        run: PORT=4189 npm run dev > /tmp/loop-courier-server.log 2>&1 &
+      - name: Wait for game
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4189/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/loop-courier-server.log
+          exit 1
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: loop-courier-browser-smoke
+          path: |
+            output/
+            assets/loop-courier-showcase.png
