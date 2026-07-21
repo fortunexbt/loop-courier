@@ -1,0 +1,19 @@
+{
+  "name": "loop-courier",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A seeded transit-map routing game about drawing and splicing delivery loops.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "build": "node scripts/build-site.mjs",
+    "check": "node --check main.js && node --check game-core.js && node --check scripts/serve.mjs && node --check scripts/browser-smoke.mjs && node --check scripts/build-site.mjs",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "verify": "npm run check && npm test"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.0"
+  }
+}

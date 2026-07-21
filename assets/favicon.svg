@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Loop Courier">
+  <rect width="64" height="64" rx="15" fill="#09192a"/>
+  <path d="M17 18h20c9 0 14 5 14 14S46 46 37 46H20c-6 0-9-4-9-9 0-6 4-9 10-9h21" fill="none" stroke="#06d6a0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="17" cy="18" r="5" fill="#ffd166"/>
+  <rect x="37" y="41" width="10" height="10" rx="2" fill="#ef476f"/>
+</svg>

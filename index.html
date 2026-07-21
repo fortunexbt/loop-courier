@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#09192a" />
+    <meta
+      name="description"
+      content="Draw, dispatch, and splice a seeded transit loop before the delivery clock runs out."
+    />
+    <title>Loop Courier</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="site.webmanifest" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#hud">Skip to game controls</a>
+    <main id="app">
+      <canvas
+        id="game"
+        width="960"
+        height="600"
+        tabindex="0"
+        role="application"
+        aria-label="Loop Courier transit map"
+        aria-describedby="gameInstructions accessibleState"
+      ></canvas>
+      <p id="gameInstructions" class="sr-only">
+        Draw a closed route with pointer or touch input. Circle stations are pickups and square stations are dropoffs.
+        Match at least one color, then use the labeled controls to start, pause, or splice the route.
+      </p>
+      <p id="accessibleState" class="sr-only" aria-live="polite"></p>
+
+      <section id="hud" aria-label="Heads up display">
+        <div class="row">
+          <div class="brand">
+            <div class="title">Loop Courier</div>
+            <div class="subtitle">Draw a loop. Deliver before time runs out. Splice to survive.</div>
+          </div>
+          <div class="stats">
+            <div class="stat"><span class="k">Score</span><span id="statScore" class="v">0</span></div>
+            <div class="stat"><span class="k">Combo</span><span id="statCombo" class="v">0</span></div>
+            <div class="stat"><span class="k">Time</span><span id="statTime" class="v">0:00</span></div>
+            <div class="stat"><span class="k">Splices</span><span id="statSplices" class="v">0</span></div>
+            <div class="stat"><span class="k">Route</span><span id="statRoute" class="v">—</span></div>
+          </div>
+        </div>
+
+        <div class="row controls">
+          <div class="group">
+            <button id="btnNewSeed" type="button" title="Generate a new city seed (N)">New Seed</button>
+            <label class="seed">
+              <span>Seed</span>
+              <input id="seedInput" type="text" spellcheck="false" autocomplete="off" />
+            </label>
+            <button id="btnCopyLink" type="button" title="Copy a share link with the current seed">Copy Link</button>
+            <button id="btnTutorial" type="button" title="Show the tutorial (T)">Tutorial</button>
+            <button id="btnFullscreen" type="button" title="Toggle fullscreen (F)" aria-pressed="false">Fullscreen</button>
+          </div>
+
+          <div class="group">
+            <button id="btnResetLoop" type="button" title="Clear the loop and redraw (R)">Reset Loop</button>
+            <button id="btnStart" type="button" title="Start the run (Enter)">Start</button>
+            <button id="btnSplice" type="button" title="Enter splice mode (S)">Splice</button>
+            <button id="btnPause" type="button" title="Pause/Resume (Space)">Pause</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div id="hint" class="hint" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="row help">
+          <div class="pill">Draw: Click to add points, drag to freehand. Close by clicking near the first point.</div>
+          <div class="pill">Run: Space pause. S splice (click 2 edges). Esc cancel splice.</div>
+          <div class="pill">R reset loop. N new seed. Enter start. T tutorial. F fullscreen.</div>
+        </div>
+      </section>
+
+      <section
+        id="modal"
+        class="hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modalTitle"
+        tabindex="-1"
+      >
+        <div class="card">
+          <div id="modalTitle" class="mTitle">Round Over</div>
+          <div id="modalBody" class="mBody"></div>
+          <div class="mActions">
+            <button id="btnModalPrimary" type="button">Play Again</button>
+            <button id="btnModalSecondary" type="button">New Seed</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tutorialDock" class="tutorial hidden" role="dialog" aria-labelledby="tutorialTitle" tabindex="-1">
+        <div class="tHead">
+          <div id="tutorialTitle" class="tTitle">Tutorial</div>
+          <div id="tutorialStep" class="tStep">1/1</div>
+        </div>
+        <div id="tutorialBody" class="tBody"></div>
+        <div class="tActions">
+          <button id="btnTutSkip" type="button">Skip</button>
+          <button id="btnTutNext" type="button">Next</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
