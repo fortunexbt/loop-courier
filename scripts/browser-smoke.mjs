@@ -118,6 +118,7 @@ try {
   await page.locator("#seedInput").press("Tab");
   assert.equal((await readState(page)).seed, "CONTROL-9");
   await page.locator("#btnCopyLink").click();
+  await page.waitForFunction(() => /copied|blocked/i.test(document.querySelector("#hint")?.textContent || ""));
   assert.match(await page.locator("#hint").textContent(), /copied|blocked/i);
   const seedBeforeButton = (await readState(page)).seed;
   await page.locator("#btnNewSeed").click();
