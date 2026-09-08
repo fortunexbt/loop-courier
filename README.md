@@ -1,101 +1,82 @@
+<div align="center">
+
 # Loop Courier
 
-A two-minute transit-routing game about drawing a delivery loop, dispatching a courier, and rewiring the route while the city changes.
+**One courier. Two minutes. Three chances to change the route.**
 
-![Loop Courier dispatch console](assets/loop-courier-showcase.png)
+Draw a delivery loop, send your courier into the city, and keep the parcels moving.
 
-![Loop Courier running a spliced route after a successful delivery](assets/loop-courier-showcase.png)
+[**Play in your browser →**](https://fortunexbt.github.io/loop-courier/) · [Try city METRO-7](https://fortunexbt.github.io/loop-courier/?seed=METRO-7) · [Run locally](#run-locally)
 
-## Why it is interesting
+Mouse, touch, or keyboard. No account needed.
 
-- Every city is reproducible from a shareable `?seed=` URL. **Daily city** gives everyone the same UTC date seed.
-- A one-click starter route, undo/reopen, explicit closure, and a keyboard station builder make the first run easy to start.
-- A dedicated dispatch panel shows color contracts, station coverage, estimated lap time, cargo, and a short event feed.
-- Per-city personal bests and run ratings are stored on your device for your 30 most recently played cities.
-- Freehand and tap-built routes snap to stations and must connect a same-color pickup/dropoff contract.
-- New orders use connected pickup/dropoff pairs. The courier moves continuously while packages expire, jams slow segments, and tolls drain score.
-- A delivery earns 30 base points plus 10 per extra connected color, multiplied by the current combo bonus. A missed delivery costs 18 points.
-- Live play and replay share a 60 Hz simulation clock. Unchanged routes produce identical outcomes across render rates and frame stalls. Retry resets hazards, orders, random state, and timers. Planning has no time limit; leaving the tab pauses an active run.
-- Three mid-run **two-opt splices** let you rewire non-adjacent loop edges without resetting the courier.
-- The whole game is browser-native: canvas, ES modules, and no runtime dependencies or external assets.
+</div>
 
-## Play locally
+[![Loop Courier during a delivery shift: a glowing route connects pickup and dropoff stations, with score, cargo, and route controls alongside the map.](assets/loop-courier-showcase.png)](https://fortunexbt.github.io/loop-courier/)
+
+## Your first shift
+
+1. **Plan a loop.** Connect a circle pickup to a square dropoff of the same color, then close the route. Hit **Starter route** if you want to get moving immediately. Planning has no timer.
+2. **Dispatch your courier.** You have two minutes to deliver. The courier follows your loop automatically, carrying up to three parcels. Watch their destinations and deadlines under the map.
+3. **Adapt on the move.** Traffic jams slow you down; toll zones eat into your score. Use **Splice route** to reconnect two non-adjacent edges while the courier keeps moving. You get three splices per shift.
+
+At the end, run the route again or choose **Edit this route** to try a better plan in the same city.
+
+## More coverage, or a faster lap?
+
+Connecting more colors increases the value of every delivery. But a longer loop can leave parcels circling the city until their deadlines expire. Consecutive deliveries build your combo; a missed parcel breaks it.
+
+Start with one reliable connection. Add another color. Then decide whether the extra distance earns its place.
+
+## Same city. Better route.
+
+**Daily city** gives everyone the same map for the day, changing at midnight UTC. **Share city** copies a seeded link so a friend can try your city too. Retry resets the orders, hazards, and clock, giving you a consistent starting point for each attempt.
+
+Personal bests stay on your device. Compare scores with friends by sharing the city; there is no online leaderboard.
+
+<details>
+<summary><strong>Controls & keyboard shortcuts</strong></summary>
+
+All actions have on-screen controls. For keyboard play, focus the map first; text fields and buttons keep their normal keyboard behavior.
+
+| Action | Mouse / touch | Keyboard |
+| --- | --- | --- |
+| Build a route | Click, tap, or drag; **Starter route** builds a complete loop | Arrow keys choose a station; `Space` adds it |
+| Close the loop | **Close loop**, or return to the first point | `C` |
+| Undo / reopen | **Undo** | `Backspace` / `Z` |
+| Dispatch | **Dispatch courier** | `Enter` |
+| Splice | **Splice route**, then two non-adjacent edges | `S`, arrows to choose an edge, `Space` to select |
+| Cancel a splice | **Cancel splice** | `Escape` / `S` |
+| Pause / resume | **Pause** / **Resume** | `Space` |
+| Clear the route | **Clear** | `R` |
+| New city | **New city** | `N` |
+| Daily city | **Daily city** | — |
+| Edit after a shift | **Edit this route** in the report | Tab to the button, then `Enter` |
+| Guide | **How to play** | `T` |
+| Fullscreen | Fullscreen icon | `F`; `Escape` exits |
+| Sound | **Sound on/off** | — |
+
+A route needs at least three points and a matching pickup/dropoff pair. A splice needs at least four points and must keep at least one complete color connection. Parcels already in play keep their original destinations after a splice.
+
+Opening the guide or leaving the tab pauses the shift. Sound starts off.
+
+</details>
+
+## Run locally
+
+Use Node.js 22 or newer.
 
 ```bash
+git clone https://github.com/fortunexbt/loop-courier.git
+cd loop-courier
 npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:4173>. No build step is required.
+Open [localhost:4173](http://127.0.0.1:4173). The game runs directly from source—there is no build step to play locally.
 
-## Controls
+Built with Canvas, JavaScript modules, and browser APIs. No runtime dependencies.
 
-| Action | Mouse / touch | Keyboard |
-| --- | --- | --- |
-| Draw route | Click, tap, or drag; use Starter route for a complete network | Focus map: arrows select a station, `Space` adds it |
-| Close route | Close loop, or return near the first point (at least 3 points) | `C` |
-| Undo / reopen | Undo removes a point or reopens a closed route | `Backspace` / `Z` |
-| Start | **Dispatch courier** | `Enter` |
-| Splice | **Splice route**, then choose two non-adjacent edges; button again cancels | `S`, then arrows to choose edges and `Space` to select; `Escape` cancels |
-| Pause / resume | **Pause** | `Space` |
-| Reset route | **Clear** | `R` |
-| New seeded city | **New city** (starts a fresh plan) | `N` |
-| Daily city | **Daily city** | — |
-| Delivery sounds | **Sound on/off** (off by default) | — |
-| Edit a finished route | **Edit this route** in the shift report | Tab to the action, then `Enter` |
-| Tutorial | **How to play** | `T` |
-| Fullscreen | **Fullscreen** | `F`; `Escape` exits |
+For tests, project structure, and deployment, see [Contributing](CONTRIBUTING.md). Changes are tracked in the [changelog](CHANGELOG.md).
 
-Circles are pickups, squares are dropoffs, and colors define delivery contracts. Labels R1–R4, B1–B4, and G1–G4 match the station builder. A splice needs at least four route points and must preserve at least one complete contract. Existing orders keep their destinations after a splice. Cargo chips show destination station IDs and seconds remaining, including an off-route warning.
-
-Enter and Space preserve native button behavior; form inputs keep normal text editing. Tutorial stays visible and holds an active run paused until dismissed; an already paused run stays paused. Scores are local personal records, not an online leaderboard. If storage is unavailable, the game remains playable and reports that a result could not be saved.
-
-## Verification
-
-```bash
-npm run verify
-```
-
-The unit suite locks down seeded RNG output, deterministic city generation, route projection, two-opt rewires, UTC daily seeds, record validation, best-score retention, eviction, blocked storage, and frame-rate-independent simulation ticks.
-
-For the real-browser smoke, run the server in one terminal and Playwright in another:
-
-```bash
-LOOP_COURIER_URL=http://127.0.0.1:4173 npm run test:browser
-```
-
-The browser suites prove seeded pickup → delivery, pause-time freezing, splice consumption, fullscreen/Escape, tutorial and modal actions, seed controls, a 390 px touch layout, starter routes, replay equivalence, planning-time independence, saved records, route editing, and keyboard construction. They also refresh the showcase capture and write inspection artifacts under `output/`.
-
-The replay suite compares three complete seeded runs at 30 fps, 144 fps, with 450 ms stalls, and through virtual time. It skips raster calls to keep the timing test fast; the other suites render the actual canvas. Interaction checks cover keyboard splicing, rejection of disconnected routes, guide focus/pause, same-city replanning, cargo timers, and phone controls alongside the map.
-
-To run the same suites with WebKit (the Safari engine):
-
-```bash
-npx playwright install webkit
-LOOP_COURIER_BROWSER=webkit LOOP_COURIER_URL=http://127.0.0.1:4173 npm run test:browser
-```
-
-For lower-level automation, the page exposes:
-
-- `window.render_game_to_text()` — concise JSON describing the current interactable state and canvas coordinates.
-- `window.advanceTime(ms)` — synchronous fixed-step virtual time for deterministic scenarios.
-
-## Deploy
-
-All application URLs are relative, so the repository works from a GitHub Pages project subpath. The included Pages workflow publishes the static root on pushes to `main`; enable **GitHub Actions** as the Pages source in repository settings.
-
-## Project map
-
-```text
-index.html              accessible game shell
-style.css               responsive/coarse-pointer presentation
-main.js                 game state, input, simulation, and canvas renderer
-progression.js          UTC daily cities and validated local best scores
-simulation-clock.js     fixed ticks shared by live play and replays
-game-core.js            deterministic algorithms shared with tests
-tests/                  core tests and replayable client choreography
-scripts/                local server and browser smoke
-assets/                 favicon and real gameplay capture
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for extension ideas and [CHANGELOG.md](CHANGELOG.md) for release notes. Licensed under the [MIT License](LICENSE).
+[MIT License](LICENSE)
