@@ -5,9 +5,21 @@ import {
   createRng,
   dist,
   generateStations,
+  hazardEffectsAtPoint,
   projectPointToLoop,
   twoOptSpliceCycle,
 } from "../game-core.js";
+
+test("hazard effects apply inside the visible zone, not along an entire crossing edge", () => {
+  const hazards = [
+    { kind: "toll", x: 50, y: 0, r: 10, cost: 6 },
+    { kind: "jam", x: 50, y: 0, r: 20, slow: 0.5, bornAtMs: 0, ttlMs: 1000 },
+  ];
+  assert.deepEqual(hazardEffectsAtPoint(hazards, { x: 0, y: 0 }, 500), { slowMult: 1, tollCost: 0 });
+  assert.deepEqual(hazardEffectsAtPoint(hazards, { x: 40, y: 0 }, 500), { slowMult: 0.5, tollCost: 6 });
+  assert.deepEqual(hazardEffectsAtPoint(hazards, { x: 50, y: 0 }, 1001), { slowMult: 1, tollCost: 6 });
+  assert.deepEqual(hazardEffectsAtPoint([], { x: 50, y: 0 }, 500), { slowMult: 1, tollCost: 0 });
+});
 
 test("seeded RNG is stable and seed-sensitive", () => {
   const sample = (seed) => {

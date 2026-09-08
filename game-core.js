@@ -10,6 +10,20 @@ export function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+export function hazardEffectsAtPoint(hazards, point, nowMs) {
+  let slowMult = 1;
+  let tollCost = 0;
+  for (const hazard of hazards) {
+    if (dist(hazard, point) > hazard.r) continue;
+    if (hazard.kind === "jam" && nowMs - hazard.bornAtMs <= hazard.ttlMs) {
+      slowMult *= 1 - hazard.slow;
+    } else if (hazard.kind === "toll") {
+      tollCost += hazard.cost;
+    }
+  }
+  return { slowMult, tollCost };
+}
+
 export function xmur3(value) {
   let hash = 1779033703 ^ value.length;
   for (let index = 0; index < value.length; index += 1) {
