@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser-engine.mjs";
 
 const baseUrl = process.env.LOOP_COURIER_URL || "http://127.0.0.1:4189";
 await mkdir("output", { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser();
 const state = (page) => page.evaluate(() => JSON.parse(window.render_game_to_text()));
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

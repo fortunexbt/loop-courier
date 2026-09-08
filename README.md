@@ -15,7 +15,7 @@ A two-minute transit-routing game about drawing a delivery loop, dispatching a c
 - Freehand and tap-built routes snap to stations and must connect a same-color pickup/dropoff contract.
 - New orders use connected pickup/dropoff pairs. The courier moves continuously while packages expire, jams slow segments, and tolls drain score.
 - A delivery earns 30 base points plus 10 per extra connected color, multiplied by the current combo bonus. A missed delivery costs 18 points.
-- Retry resets hazards, orders, random state, and timers. Planning has no time limit; leaving the tab pauses an active run.
+- Live play and replay share a 60 Hz simulation clock. Unchanged routes produce identical outcomes across render rates and frame stalls. Retry resets hazards, orders, random state, and timers. Planning has no time limit; leaving the tab pauses an active run.
 - Three mid-run **two-opt splices** let you rewire non-adjacent loop edges without resetting the courier.
 - The whole game is browser-native: canvas, ES modules, and no runtime dependencies or external assets.
 
@@ -36,18 +36,19 @@ Open <http://127.0.0.1:4173>. No build step is required.
 | Close route | Close loop, or return near the first point (at least 3 points) | `C` |
 | Undo / reopen | Undo removes a point or reopens a closed route | `Backspace` / `Z` |
 | Start | **Dispatch courier** | `Enter` |
-| Splice | **Splice route**, then choose two non-adjacent edges | `S` |
+| Splice | **Splice route**, then choose two non-adjacent edges; button again cancels | `S`, then arrows to choose edges and `Space` to select; `Escape` cancels |
 | Pause / resume | **Pause** | `Space` |
 | Reset route | **Clear** | `R` |
 | New seeded city | **New city** (starts a fresh plan) | `N` |
 | Daily city | **Daily city** | — |
 | Delivery sounds | **Sound on/off** (off by default) | — |
+| Edit a finished route | **Edit this route** in the shift report | Tab to the action, then `Enter` |
 | Tutorial | **How to play** | `T` |
 | Fullscreen | **Fullscreen** | `F`; `Escape` exits |
 
-Circles are pickups, squares are dropoffs, and colors define delivery contracts. Labels R1–R4, B1–B4, and G1–G4 match the station builder. A splice needs at least four route points. Existing orders keep their destinations after a splice.
+Circles are pickups, squares are dropoffs, and colors define delivery contracts. Labels R1–R4, B1–B4, and G1–G4 match the station builder. A splice needs at least four route points and must preserve at least one complete contract. Existing orders keep their destinations after a splice. Cargo chips show destination station IDs and seconds remaining, including an off-route warning.
 
-Enter and Space preserve native button behavior; form inputs keep normal text editing. Tutorial pauses an active run and resumes when dismissed; an already paused run stays paused. Scores are local personal records, not an online leaderboard. If storage is unavailable, the game remains playable and reports that a result could not be saved.
+Enter and Space preserve native button behavior; form inputs keep normal text editing. Tutorial stays visible and holds an active run paused until dismissed; an already paused run stays paused. Scores are local personal records, not an online leaderboard. If storage is unavailable, the game remains playable and reports that a result could not be saved.
 
 ## Verification
 
@@ -55,7 +56,7 @@ Enter and Space preserve native button behavior; form inputs keep normal text ed
 npm run verify
 ```
 
-The unit suite locks down seeded RNG output, deterministic city generation, route projection, two-opt rewires, UTC daily seeds, record validation, best-score retention, eviction, and blocked storage.
+The unit suite locks down seeded RNG output, deterministic city generation, route projection, two-opt rewires, UTC daily seeds, record validation, best-score retention, eviction, blocked storage, and frame-rate-independent simulation ticks.
 
 For the real-browser smoke, run the server in one terminal and Playwright in another:
 
@@ -63,7 +64,16 @@ For the real-browser smoke, run the server in one terminal and Playwright in ano
 LOOP_COURIER_URL=http://127.0.0.1:4173 npm run test:browser
 ```
 
-The browser suites prove seeded pickup → delivery, pause-time freezing, splice consumption, fullscreen/Escape, tutorial and modal actions, seed controls, a 390 px touch layout, starter routes, replay equivalence, planning-time independence, saved records, route editing, and keyboard construction. They also refresh the showcase capture and writes inspection artifacts under `output/`.
+The browser suites prove seeded pickup → delivery, pause-time freezing, splice consumption, fullscreen/Escape, tutorial and modal actions, seed controls, a 390 px touch layout, starter routes, replay equivalence, planning-time independence, saved records, route editing, and keyboard construction. They also refresh the showcase capture and write inspection artifacts under `output/`.
+
+The replay suite compares three complete seeded runs at 30 fps, 144 fps, with 450 ms stalls, and through virtual time. It skips raster calls to keep the timing test fast; the other suites render the actual canvas. Interaction checks cover keyboard splicing, rejection of disconnected routes, guide focus/pause, same-city replanning, cargo timers, and phone controls alongside the map.
+
+To run the same suites with WebKit (the Safari engine):
+
+```bash
+npx playwright install webkit
+LOOP_COURIER_BROWSER=webkit LOOP_COURIER_URL=http://127.0.0.1:4173 npm run test:browser
+```
 
 For lower-level automation, the page exposes:
 
@@ -81,6 +91,7 @@ index.html              accessible game shell
 style.css               responsive/coarse-pointer presentation
 main.js                 game state, input, simulation, and canvas renderer
 progression.js          UTC daily cities and validated local best scores
+simulation-clock.js     fixed ticks shared by live play and replays
 game-core.js            deterministic algorithms shared with tests
 tests/                  core tests and replayable client choreography
 scripts/                local server and browser smoke

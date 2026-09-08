@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser-engine.mjs";
 
 const baseUrl = process.env.LOOP_COURIER_URL || "http://127.0.0.1:4189";
 const seededUrl = `${baseUrl}/?seed=METRO-7`;
@@ -39,12 +39,12 @@ async function drawBlueContract(page, options = {}) {
   return routeState;
 }
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser();
 const report = {};
 
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
+  if (browser.browserType().name() === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
   const page = await context.newPage();
   await page.goto(seededUrl, { waitUntil: "networkidle" });
   await page.waitForFunction(() => typeof window.render_game_to_text === "function");
@@ -99,7 +99,8 @@ try {
   }
   console.log("desktop: tutorial and fullscreen verified");
 
-  await page.screenshot({ path: "assets/loop-courier-showcase.png" });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: "assets/loop-courier-showcase.png", fullPage: true });
   await page.locator("#game").screenshot({ path: "output/web-game-delivery.png" });
 
   await page.evaluate(() => window.advanceTime(110000));
