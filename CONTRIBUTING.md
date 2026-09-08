@@ -13,9 +13,9 @@ Keep random decisions behind the seeded RNG, keep application paths relative for
 
 ## Good expansion points
 
-- Daily-seed score summaries stored locally.
+- Export/import of local daily-seed score summaries.
 - More city mutations with deterministic visual telegraphing.
-- Optional keyboard route construction for non-pointer play.
+- Spatial keyboard selection and keyboard splicing for non-pointer play.
 - Additional contract colors or round modifiers that remain readable on small screens.
 
 When changing route math, add a focused test in `tests/game-core.test.js`. When changing a control, update the tutorial, README control table, text-state snapshot, and browser smoke together.

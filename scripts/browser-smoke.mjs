@@ -14,6 +14,7 @@ function readState(page) {
 
 async function clickWorld(page, x, y, { touch = false } = {}) {
   const canvas = page.locator("#game");
+  await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   assert.ok(box, "game canvas must have a bounding box");
   const size = await canvas.evaluate((element) => ({ width: element.width, height: element.height }));
@@ -68,6 +69,7 @@ try {
   const deliveredState = await readState(page);
   assert.ok(deliveredState.delivered >= 1, "the seeded blue package must be delivered");
   assert.ok(deliveredState.score > 0, "delivery must increase score");
+  assert.ok(deliveredState.packages.every((pkg) => deliveredState.route.contractColors.includes(pkg.color)), "new orders must belong to connected contracts");
   console.log(`desktop: delivered ${deliveredState.delivered}`);
 
   await page.locator("#btnSplice").click();
@@ -123,6 +125,8 @@ try {
   const seedBeforeButton = (await readState(page)).seed;
   await page.locator("#btnNewSeed").click();
   assert.notEqual((await readState(page)).seed, seedBeforeButton);
+  assert.equal((await readState(page)).route.closed, false, "new city starts a fresh plan");
+  await page.locator("#btnSuggest").click();
   await page.locator("#btnResetLoop").click();
   assert.equal((await readState(page)).route.closed, false);
 

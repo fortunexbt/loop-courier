@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Rebuilt the interface as a responsive dispatch console with an unobstructed map, clearer contract coverage, lap estimate, cargo, and delivery feed.
+- Added starter routes, Undo/reopen, explicit loop closure, labeled stations, keyboard route construction, and optional synthesized delivery sounds.
+- Added global UTC daily cities, per-city personal records, run ratings, and actual best-combo tracking.
+- Made new orders serviceable by the current route and rewarded additional connected colors.
+- Limited hazard penalties to the courier being inside the visible zone instead of anywhere on a crossing route segment.
+- Fixed replay state and planning-time mutation drift, stale coverage after reset, native keyboard button activation, and freehand angle cleanup.
+- Pause on tab hiding and while reading the tutorial; preserve package visuals while paused.
+- Expanded unit and browser verification for progression and the full planning/retry flow.
+
+
 All notable changes to Loop Courier are documented here.
 
 ## 1.0.0 — 2026-07-22
