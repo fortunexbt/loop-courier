@@ -1,3 +1,5 @@
+import { createSimulationClock } from "./simulation-clock.js";
+import { dailySeed, readRecords, saveResult, bestForSeed, rankForResult } from "./progression.js";
 import {
   buildLoop,
   choice,
@@ -6,6 +8,7 @@ import {
   dist,
   generateStations as generateCityStations,
   lerp,
+  hazardEffectsAtPoint,
   projectPointToLoop,
   randRange,
   twoOptSpliceCycle,
@@ -22,13 +25,14 @@ import {
   "use strict";
 
   const TAU = Math.PI * 2;
+  let canvasScale = 1;
   const SERVICE_RADIUS = 18; // Must match pickup/delivery radius for "on-route" logic.
   const STATION_SNAP_RADIUS = 14; // While drawing, snap points to nearby stations for easier routes.
   const TUTORIAL_DONE_KEY = "loopCourierTutorialDone.v1";
 
   const COLORS = [
     { id: "red", label: "Red", fill: "#ef476f", stroke: "rgba(239, 71, 111, 0.95)" },
-    { id: "blue", label: "Blue", fill: "#118ab2", stroke: "rgba(17, 138, 178, 0.95)" },
+    { id: "blue", label: "Blue", fill: "#62c9ef", stroke: "rgba(98, 201, 239, 0.95)" },
     { id: "gold", label: "Gold", fill: "#ffd166", stroke: "rgba(255, 209, 102, 0.95)" },
   ];
 
@@ -43,10 +47,15 @@ import {
     return `${m}:${String(r).padStart(2, "0")}`;
   }
 
-  let virtualNowMs = null;
+  let manualClock = false;
+  let lastFrameAtMs = performance.now();
+  const simulationClock = createSimulationClock((dt) => {
+    simulate(dt);
+    return mode === "run" || mode === "splice";
+  });
 
   function nowMs() {
-    return virtualNowMs === null ? performance.now() : virtualNowMs;
+    return simulationClock.timeMs;
   }
 
   function round(value, places = 1) {
@@ -83,7 +92,7 @@ import {
       if (abLen < 1e-6 || bcLen < 1e-6) continue;
       const cos = clamp(dot(abx / abLen, aby / abLen, bcx / bcLen, bcy / bcLen), -1, 1);
       const ang = Math.acos(cos);
-      if (Math.abs(Math.PI - ang) > minAngle) out.push(b);
+      if (ang > minAngle || state.stations.some((station) => dist(station, b) < 1)) out.push(b);
     }
     out.push(points[points.length - 1]);
     return out;
@@ -132,6 +141,7 @@ import {
 
   function fitCanvasToDisplay(canvas) {
     const rect = canvas.getBoundingClientRect();
+    canvasScale = canvas.width / Math.max(1, rect.width);
     // Keep internal resolution stable but match display ratio via CSS.
     // We still use fixed pixel coordinates for gameplay.
     return { rect };
@@ -148,6 +158,76 @@ import {
 
   const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("game"));
   const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d", { alpha: true }));
+
+  let storage;
+  try { storage = window.localStorage; } catch { /* Session-only records are supported. */ }
+  let records = readRecords(storage);
+  let unsavedRecords = null;
+  let selectedStation = 0;
+  let focusedEdge = 0;
+  let lastCargoKey = "";
+  let cargoDirty = true;
+  let nextCargoUpdateAtMs = 0;
+  let soundEnabled = false;
+  let audioContext = null;
+  let tutorialPausedRun = false;
+  const events = [];
+  const effects = [];
+  const ui = Object.fromEntries([
+    "btnDaily", "bestScore", "seedBadge", "phaseLabel", "routeStatus", "routeLength", "routeCoverage",
+    "btnUndo", "btnCloseLoop", "btnSuggest", "stationPicker", "cargoStatus", "dispatchFeed", "btnSound",
+    "statDelivered", "statMissed",
+  ].map((id) => [id, document.getElementById(id)]));
+
+  const contractElements = Object.fromEntries(COLORS.map((color) => [color.id, document.getElementById(`contract-${color.id}`)]));
+
+  function setText(element, value) {
+    if (element.textContent !== value) element.textContent = value;
+  }
+
+  function phaseText() {
+    switch (mode) {
+      case "draw": return state.loop ? "READY TO DISPATCH" : "PLAN YOUR ROUTE";
+      case "over": return "SHIFT COMPLETE";
+      case "paused": return "DISPATCH PAUSED";
+      case "splice": return "REWIRE THE ROUTE";
+      default: return "COURIER IN TRANSIT";
+    }
+  }
+
+  function routeStatusText() {
+    if (state.loop) return state.route.hasContract ? "Your loop is ready" : "Connect a matching pair";
+    if (state.draw.points.length) return `${state.draw.points.length} stops drawn · close your loop`;
+    return "Every delivery starts with a line.";
+  }
+
+  function playTone(kind) {
+    if (!soundEnabled || !audioContext) return;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const time = audioContext.currentTime;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(kind === "delivery" ? 660 : kind === "pickup" ? 440 : 180, time);
+    oscillator.frequency.exponentialRampToValueAtTime(kind === "delivery" ? 990 : 220, time + 0.12);
+    gain.gain.setValueAtTime(0.055, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(time);
+    oscillator.stop(time + 0.21);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+  }
+
+  function logEvent(message, kind = "info") {
+    events.unshift({ message, kind });
+    events.splice(4);
+    ui.dispatchFeed.replaceChildren(...events.map((event) => {
+      const item = document.createElement("li");
+      item.className = `event-${event.kind}`;
+      item.textContent = event.message;
+      return item;
+    }));
+  }
 
   const elScore = document.getElementById("statScore");
   const elCombo = document.getElementById("statCombo");
@@ -172,6 +252,7 @@ import {
   const modalBody = document.getElementById("modalBody");
   const btnModalPrimary = document.getElementById("btnModalPrimary");
   const btnModalSecondary = document.getElementById("btnModalSecondary");
+  const btnModalReplan = document.getElementById("btnModalReplan");
 
   const tutorialDock = document.getElementById("tutorialDock");
   const tutorialTitle = document.getElementById("tutorialTitle");
@@ -190,27 +271,27 @@ import {
   const TUTORIAL_STEPS = [
     {
       title: "Connect the network",
-      body: "Circle stations are pickups; squares are dropoffs. Draw or tap a closed loop that passes through a same-color pair. The line snaps to nearby stations.",
+      body: "Circles are pickups; squares are dropoffs. Connect a same-color pair in a loop of at least three points, or try Starter route. Undo reopens a loop. On the map, arrows select stations, Space adds one, and C closes the route.",
       target: canvas,
     },
     {
       title: "Dispatch the courier",
-      body: "When at least one color contract is connected, Start unlocks. Your courier runs the loop automatically and carries up to three packages.",
+      body: "Dispatch unlocks when a color contract is connected. New orders use connected stations only. More connected colors earn bigger delivery bonuses. Your courier carries up to three packages.",
       target: btnStart,
     },
     {
       title: "Splice under pressure",
-      body: "Press S or Splice, then choose two non-adjacent route edges. A two-opt rewire changes the loop without stopping the courier. You get three splices per round.",
+      body: "Press S or Splice, then choose two non-adjacent edges on a route with four or more points. On the focused map, arrows select an edge and Space confirms it. Escape or Cancel splice exits. A splice must keep at least one contract. Cargo chips show each parcel’s destination and time left.",
       target: btnSplice,
     },
     {
       title: "Beat the mutation clock",
-      body: "Tolls drain score and jams slow the courier. Pause with Space, toggle fullscreen with F, and share any city by copying its seeded link.",
+      body: "Tolls drain score and jams slow the courier. Space pauses during a run. Daily city is shared worldwide on UTC time; your best scores stay on this device. Every retry resets the city and its timers.",
       target: btnPause,
     },
   ];
 
-  /** @type {{loop: null | ReturnType<typeof buildLoop>, route: any, draw: {points: {x:number,y:number}[], dragging:boolean, closed:boolean, cursor: null | {x:number,y:number}}, splice: {edgeA: null | number, edgeB: null | number}, rng: () => number, seed: string, round: number, roundEndAtMs: number, roundDurationS: number, pausedAtMs: null | number, score: number, combo: number, delivered: number, missed: number, splicesLeft: number, maxSplices: number, bot: {segIndex: number, segPos: number, speed: number, pos: {x:number,y:number}}, stations: any[], packages: any[], nextSpawnAtMs: number, baseDeadlineS: number, cargoCap: number, cargoIds: number[], hazards: any[], nextMutationAtMs: number, difficulty: number }} */
+  /** @type {{loop: null | ReturnType<typeof buildLoop>, route: any, draw: {points: {x:number,y:number}[], dragging:boolean, cursor: null | {x:number,y:number}}, splice: {edgeA: null | number}, rng: () => number, seed: string, round: number, roundEndAtMs: number, roundDurationS: number, score: number, combo: number, delivered: number, missed: number, splicesLeft: number, maxSplices: number, bot: {segIndex: number, segPos: number, speed: number, pos: {x:number,y:number}}, stations: any[], packages: any[], nextSpawnAtMs: number, baseDeadlineS: number, cargoCap: number, cargoIds: number[], hazards: any[], nextMutationAtMs: number, difficulty: number }} */
   const state = {
     loop: null,
     route: {
@@ -224,16 +305,16 @@ import {
       contractColors: [],
       hasContract: false,
     },
-    draw: { points: [], dragging: false, closed: false, cursor: null },
-    splice: { edgeA: null, edgeB: null },
+    draw: { points: [], dragging: false, cursor: null },
+    splice: { edgeA: null },
     rng: createRng(""),
     seed: "",
     round: 1,
     roundEndAtMs: 0,
     roundDurationS: 120,
-    pausedAtMs: null,
     score: 0,
     combo: 0,
+    bestCombo: 0,
     delivered: 0,
     missed: 0,
     splicesLeft: 3,
@@ -317,7 +398,11 @@ import {
   }
 
   function recomputeRouteInfo() {
-    state.route = computeRouteInfo(state.loop);
+    cargoDirty = true;
+    const points = state.draw.points;
+    const preview = !state.loop && points.length > 1 ? buildLoop(points) : null;
+    if (preview) preview.segments.pop();
+    state.route = computeRouteInfo(state.loop || preview);
     updateButtons();
   }
 
@@ -357,12 +442,20 @@ import {
   }
 
   function showTutorial(index = 0) {
+    tutorialPausedRun = mode === "run" || mode === "splice";
+    if (tutorialPausedRun) pauseToggle();
+    if (mode === "over") {
+      tutorialPausedRun = false;
+      return;
+    }
     tutorialIndex = clamp(index, 0, TUTORIAL_STEPS.length - 1);
     focusBeforeOverlay = document.activeElement;
     tutorialDock.classList.remove("hidden");
     btnTutorial.setAttribute("aria-expanded", "true");
     renderTutorialStep();
-    btnTutNext.focus({ preventScroll: true });
+    updateButtons();
+    btnTutNext.focus();
+    tutorialDock.scrollIntoView({ block: "nearest" });
   }
 
   function hideTutorial({ remember = false, restoreFocus = true } = {}) {
@@ -371,43 +464,41 @@ import {
     btnTutorial.setAttribute("aria-expanded", "false");
     clearTutorialPulse();
     if (remember) setTutorialDone();
-    if (restoreFocus && focusBeforeOverlay instanceof HTMLElement) focusBeforeOverlay.focus({ preventScroll: true });
+    if (tutorialPausedRun && mode === "paused") pauseToggle();
+    tutorialPausedRun = false;
+    updateButtons();
+    if (restoreFocus) {
+      const target = focusBeforeOverlay instanceof HTMLElement && focusBeforeOverlay !== document.body ? focusBeforeOverlay : canvas;
+      target.focus();
+    }
     focusBeforeOverlay = null;
   }
 
   function setMode(nextMode) {
     mode = nextMode;
+    cargoDirty = true;
+    document.getElementById("app").dataset.mode = mode;
     updateButtons();
     if (mode === "draw") {
       setHint("Draw a closed loop around pickups/dropoffs. Close by clicking near the first point.");
     } else if (mode === "run") {
       setHint("Deliver fast. Press S to splice (click 2 edges).");
     } else if (mode === "splice") {
-      setHint("Splice mode: click two loop edges to rewire. Esc to cancel.");
+      setHint("Pick two non-adjacent edges. On the map: arrows choose an edge, Space selects. Esc or Cancel splice exits.");
     } else if (mode === "paused") {
       setHint("Paused. Press Space to resume.");
     }
   }
 
   function pauseToggle() {
+    if (!tutorialDock.classList.contains("hidden")) return;
     if (mode === "paused") {
-      const resumedAtMs = nowMs();
-      const pausedForMs = Math.max(0, resumedAtMs - (state.pausedAtMs ?? resumedAtMs));
-      state.roundEndAtMs += pausedForMs;
-      state.nextSpawnAtMs += pausedForMs;
-      state.nextMutationAtMs += pausedForMs;
-      for (const pkg of state.packages) {
-        pkg.createdAtMs += pausedForMs;
-        pkg.expiresAtMs += pausedForMs;
-      }
-      for (const hazard of state.hazards) hazard.bornAtMs += pausedForMs;
-      state.pausedAtMs = null;
+      lastFrameAtMs = performance.now();
       setMode(pausedMode);
-      return;
-    }
-    if (mode === "run" || mode === "splice") {
+    } else if (mode === "run" || mode === "splice") {
+      syncLiveTime();
+      if (mode !== "run" && mode !== "splice") return;
       pausedMode = mode;
-      state.pausedAtMs = nowMs();
       setMode("paused");
     }
   }
@@ -416,9 +507,14 @@ import {
     const hasLoop = !!state.loop;
     const canStart = hasLoop && state.route.hasContract && mode === "draw";
     btnStart.disabled = !canStart;
-    btnSplice.disabled = !hasLoop || mode !== "run" || state.splicesLeft <= 0;
-    btnResetLoop.disabled = mode === "run" || mode === "splice" || mode === "paused";
-    btnPause.disabled = mode === "draw" || mode === "over";
+    btnSplice.disabled = !hasLoop || state.loop.points.length < 4 || !["run", "splice"].includes(mode) || state.splicesLeft <= 0;
+    setText(btnSplice, mode === "splice" ? "Cancel splice" : "Splice route");
+    btnResetLoop.disabled = mode !== "draw" || (!hasLoop && !state.draw.points.length);
+    ui.btnUndo.disabled = mode !== "draw" || (!hasLoop && !state.draw.points.length);
+    ui.btnCloseLoop.disabled = mode !== "draw" || hasLoop || state.draw.points.length < 3;
+    ui.btnSuggest.disabled = mode !== "draw" || hasLoop || state.draw.points.length > 0;
+    for (const button of ui.stationPicker.querySelectorAll("button")) button.disabled = mode !== "draw" || hasLoop;
+    btnPause.disabled = mode === "draw" || mode === "over" || !tutorialDock.classList.contains("hidden");
     btnPause.textContent = mode === "paused" ? "Resume" : "Pause";
     btnPause.setAttribute("aria-pressed", String(mode === "paused"));
     btnSplice.setAttribute("aria-pressed", String(mode === "splice"));
@@ -430,7 +526,20 @@ import {
     state.rng = createRng(seedStr);
     state.stations = generateStations(state.rng);
     state.hazards = [];
-    state.nextMutationAtMs = nowMs() + 16000;
+    state.nextMutationAtMs = Infinity;
+    ui.seedBadge.textContent = seedStr === dailySeed() ? "DAILY CITY · UTC" : "CUSTOM CITY";
+    const best = bestForSeed(records, seedStr);
+    ui.bestScore.textContent = best ? String(best.score) : "—";
+    selectedStation = 0;
+    ui.stationPicker.replaceChildren(...state.stations.map((station, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `${stationLabel(index)} ${station.kind === "pickup" ? "○" : "□"}`;
+      button.dataset.color = station.colorId;
+      button.setAttribute("aria-label", `${getColor(station.colorId).label} ${station.kind === "pickup" ? "pickup" : "dropoff"} ${index % 4 + 1}, add to route`);
+      button.addEventListener("click", () => addStation(index));
+      return button;
+    }));
     state.difficulty = 1;
     recomputeRouteInfo();
   }
@@ -439,10 +548,7 @@ import {
     const url = new URL(window.location.href);
     const s = url.searchParams.get("seed");
     if (s && s.trim()) return s.trim();
-    // Daily default in local time (YYYY-MM-DD)
-    const d = new Date();
-    const daily = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    return daily;
+    return dailySeed();
   }
 
   function randomSeed(rng) {
@@ -455,9 +561,12 @@ import {
     return `${a}-${b}`;
   }
 
-  function resetRun({ keepLoop, keepSeed } = { keepLoop: true, keepSeed: true }) {
+  function resetRun({ keepLoop = true } = {}) {
+    simulationClock.reset();
+    lastFrameAtMs = performance.now();
     state.score = 0;
     state.combo = 0;
+    state.bestCombo = 0;
     state.delivered = 0;
     state.missed = 0;
     state.round = 1;
@@ -467,14 +576,18 @@ import {
     state.cargoCap = 3;
     state.cargoIds = [];
     state.packages = [];
-    state.pausedAtMs = null;
     pkgIdCounter = 1;
 
-    if (!keepSeed) setSeed(randomSeed(Math.random));
+    events.length = 0;
+    effects.length = 0;
+    state.splice.edgeA = null;
+    state.roundEndAtMs = 0;
+    // Regenerate the same city to restore the post-city RNG position on every attempt.
+    setSeed(state.seed);
+    logEvent("City ready. Connect matching stations.");
     if (!keepLoop) {
       state.loop = null;
       state.draw.points = [];
-      state.draw.closed = false;
       state.draw.dragging = false;
       state.draw.cursor = null;
       recomputeRouteInfo();
@@ -499,22 +612,48 @@ import {
   }
 
   function startRound() {
+    hideTutorial({ restoreFocus: false });
     const t = nowMs();
     state.roundDurationS = 120;
     state.roundEndAtMs = t + state.roundDurationS * 1000;
     state.nextSpawnAtMs = t + 1000;
-    state.pausedAtMs = null;
+    state.nextMutationAtMs = t + 16000;
     state.splicesLeft = state.maxSplices;
     setMode("run");
+    logEvent("Courier dispatched. Two minutes on the clock.");
   }
 
   function endRun() {
     setMode("over");
-    updateButtons();
-    showModal(
-      "Round Over",
-      `Seed: ${state.seed}\nScore: ${Math.floor(state.score)}\nDelivered: ${state.delivered}\nMissed: ${state.missed}\nBest combo: ${state.combo}\n\nTip: draw tighter loops early; splice to reroute toward urgent pickups/dropoffs.`,
-    );
+    const result = { score: Math.floor(state.score), delivered: state.delivered, missed: state.missed, bestCombo: state.bestCombo };
+    const saved = saveResult(storage, state.seed, result, unsavedRecords);
+    records = saved.records;
+    unsavedRecords = saved.persisted ? null : records;
+    ui.bestScore.textContent = String(saved.best.score);
+    const rank = rankForResult(result);
+    showModal(saved.isPersonalBest ? "New personal best" : "Shift complete", "");
+    const score = document.createElement("div");
+    score.className = "result-score";
+    score.textContent = `${result.score} pts`;
+    const title = document.createElement("p");
+    title.className = "result-rank";
+    title.textContent = rank.label;
+    const grid = document.createElement("div");
+    grid.className = "result-grid";
+    for (const [label, value] of [["Delivered", result.delivered], ["Missed", result.missed], ["Best combo", result.bestCombo], ["City best", saved.best.score]]) {
+      const cell = document.createElement("div");
+      const number = document.createElement("strong");
+      number.textContent = String(value);
+      const caption = document.createElement("span");
+      caption.textContent = label;
+      cell.append(number, caption);
+      grid.append(cell);
+    }
+    const note = document.createElement("p");
+    note.className = "result-note";
+    note.textContent = `${rank.detail} City ${state.seed}. ${saved.persisted ? "Best saved on this device." : "Storage unavailable; this result is session only."} Retry starts a fresh attempt on your final route.`;
+    modalBody.replaceChildren(score, title, grid, note);
+    logEvent(`Shift complete · ${result.score} points`, "delivery");
   }
 
   function showModal(title, body) {
@@ -560,9 +699,10 @@ import {
 
   function spawnPackage() {
     const rng = state.rng;
-    const pickups = state.stations.filter((s) => s.kind === "pickup");
+    const pickups = state.route.contractColors.flatMap((id) => state.route.pickupsByColor[id]);
+    if (!pickups.length) return;
     const pick = choice(rng, pickups);
-    const drops = state.stations.filter((s) => s.kind === "drop" && s.colorId === pick.colorId);
+    const drops = state.route.dropsByColor[pick.colorId];
     const drop = choice(rng, drops);
     const deadlineS = Math.max(8, state.baseDeadlineS - state.difficulty * 0.9 + randRange(rng, -2, 3));
     const createdAtMs = nowMs();
@@ -579,6 +719,8 @@ import {
       carried: false,
     };
     state.packages.push(pkg);
+    cargoDirty = true;
+    logEvent(`${getColor(pkg.colorId).label} order · ${Math.ceil(deadlineS)}s to deliver`);
   }
 
   function mutateCity() {
@@ -608,29 +750,10 @@ import {
       });
       setHint("City mutation: traffic jam. Passing through slows you down.");
     }
+    logEvent(kind === "toll" ? "New toll zone. Watch the amber ring." : "Traffic jam. Watch the blue ring.", "warning");
     // Limit hazards
     if (state.hazards.length > 10) state.hazards.splice(0, state.hazards.length - 10);
     state.nextMutationAtMs = nowMs() + randRange(rng, 14000, 20000);
-  }
-
-  function hazardEffectsForSegment(seg) {
-    // Return {slowMult, tollCost} aggregated for this segment based on hazard circles.
-    let slowMult = 1;
-    let tollCost = 0;
-    const now = nowMs();
-    const a = seg.a;
-    const b = seg.b;
-    for (const hz of state.hazards) {
-      if (hz.kind === "jam") {
-        if (now - hz.bornAtMs > hz.ttlMs) continue;
-        const d2 = pointSegDistance2({ x: hz.x, y: hz.y }, a, b);
-        if (d2 <= hz.r * hz.r) slowMult *= 1 - hz.slow;
-      } else if (hz.kind === "toll") {
-        const d2 = pointSegDistance2({ x: hz.x, y: hz.y }, a, b);
-        if (d2 <= hz.r * hz.r) tollCost += hz.cost;
-      }
-    }
-    return { slowMult, tollCost };
   }
 
   function updateBot(dt) {
@@ -642,8 +765,7 @@ import {
     const now = nowMs();
     state.hazards = state.hazards.filter((hz) => hz.kind !== "jam" || now - hz.bornAtMs <= hz.ttlMs);
 
-    const seg = loop.segments[state.bot.segIndex];
-    const effects = hazardEffectsForSegment(seg);
+    const effects = hazardEffectsAtPoint(state.hazards, state.bot.pos, now);
     const speed = state.bot.speed * (0.85 + state.difficulty * 0.02) * effects.slowMult;
     let distLeft = speed * dt;
 
@@ -681,13 +803,18 @@ import {
       if (!pkg || pkg.delivered || pkg.missed) continue;
       if (dist(botPos, pkg.drop) <= deliveryRadius) {
         pkg.delivered = true;
+        cargoDirty = true;
         pkg.carried = false;
         state.cargoIds = state.cargoIds.filter((id) => id !== pkgId);
-        const base = 30;
+        const base = 30 + 10 * Math.max(0, state.route.contractColors.length - 1);
         state.combo = state.combo + 1;
+        state.bestCombo = Math.max(state.bestCombo, state.combo);
         const mult = 1 + Math.min(12, state.combo) * 0.12;
         state.score += base * mult;
         state.delivered += 1;
+        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `+${Math.round(base * mult)}`, born: nowMs(), color: "#c7f36b" });
+        logEvent(`${getColor(pkg.colorId).label} delivered · +${Math.round(base * mult)} · combo ${state.combo}`, "delivery");
+        playTone("delivery");
       }
     }
 
@@ -700,8 +827,10 @@ import {
         if (state.cargoIds.length >= state.cargoCap) break;
         if (dist(botPos, pkg.pickup) <= pickupRadius) {
           pkg.picked = true;
+          cargoDirty = true;
           pkg.carried = true;
           state.cargoIds.push(pkg.id);
+          playTone("pickup");
         }
       }
     }
@@ -713,12 +842,16 @@ import {
       if (pkg.delivered || pkg.missed) continue;
       if (now > pkg.expiresAtMs) {
         pkg.missed = true;
+        cargoDirty = true;
         pkg.carried = false;
         // Remove from cargo if it was carried.
         state.cargoIds = state.cargoIds.filter((id) => id !== pkg.id);
         state.missed += 1;
         state.combo = 0;
         state.score = Math.max(0, state.score - 18);
+        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: "−18", born: nowMs(), color: "#fb8299" });
+        logEvent(`${getColor(pkg.colorId).label} deadline missed · −18`, "warning");
+        playTone("miss");
         // Missed deadlines add a toll bubble near the miss location to push reroutes.
         state.hazards.push({
           kind: "toll",
@@ -756,23 +889,67 @@ import {
     state.difficulty = 1 + progress * 6 + (state.round - 1) * 1.5;
   }
 
-  function displayNowMs() {
-    return mode === "paused" && state.pausedAtMs !== null ? state.pausedAtMs : nowMs();
+  function updateCargo() {
+    if (!cargoDirty && nowMs() < nextCargoUpdateAtMs) return;
+    cargoDirty = false;
+    const waiting = state.packages.filter((pkg) => !pkg.picked && !pkg.delivered && !pkg.missed).length;
+    const parcels = state.cargoIds.map((id) => state.packages.find((pkg) => pkg.id === id)).filter(Boolean).map((pkg) => {
+      const destination = state.stations.findIndex((station) => station.kind === "drop" && dist(station, pkg.drop) < 0.1);
+      return { pkg, destination, seconds: Math.max(0, Math.ceil((pkg.expiresAtMs - nowMs()) / 1000)), unreachable: !state.route.stationOnRoute[destination] };
+    });
+    nextCargoUpdateAtMs = Math.min(Infinity, ...parcels.map(({ pkg, seconds }) => seconds > 0 ? pkg.expiresAtMs - (seconds - 1) * 1000 : Infinity));
+    const key = JSON.stringify([mode, waiting, parcels.map(({ pkg, destination, seconds, unreachable }) => [pkg.id, destination, seconds, unreachable])]);
+    if (key === lastCargoKey) return;
+    lastCargoKey = key;
+    const summary = document.createElement("span");
+    summary.className = "cargo-summary";
+    summary.textContent = mode === "draw" ? "Three parcel capacity · dispatch to begin" : `${parcels.length}/${state.cargoCap} aboard · ${waiting} waiting`;
+    const chips = parcels.map(({ pkg, destination, seconds, unreachable }) => {
+      const chip = document.createElement("span");
+      chip.className = "cargo-chip";
+      chip.dataset.color = pkg.colorId;
+      chip.dataset.urgent = String(seconds <= 6);
+      chip.dataset.unreachable = String(unreachable);
+      const label = destination >= 0 ? stationLabel(destination) : getColor(pkg.colorId).label;
+      chip.append(`→ ${label}${unreachable ? " · off route" : ""}`);
+      const countdown = document.createElement("span");
+      countdown.className = "cargo-deadline";
+      countdown.textContent = `${seconds}s`;
+      chip.append(countdown);
+      chip.title = `${getColor(pkg.colorId).label} parcel to ${label}, ${seconds} seconds remaining${unreachable ? ", destination off route" : ""}`;
+      return chip;
+    });
+    ui.cargoStatus.replaceChildren(summary, ...chips);
   }
 
   function updateHud() {
-    elScore.textContent = String(Math.floor(state.score));
-    elCombo.textContent = String(state.combo);
-    elSplices.textContent = String(state.splicesLeft);
     const covered = state.route.pickupsCovered + state.route.dropsCovered;
     const total = state.route.pickupsTotal + state.route.dropsTotal;
-    elRoute.textContent = state.route.hasContract ? `${state.route.contractColors.length} live` : `${covered}/${total}`;
+    setText(elScore, String(Math.floor(state.score)));
+    setText(elCombo, `${state.combo}×`);
+    setText(ui.statDelivered, String(state.delivered));
+    setText(ui.statMissed, String(state.missed));
+    setText(ui.phaseLabel, phaseText());
+    setText(ui.routeStatus, routeStatusText());
+    setText(ui.routeLength, state.loop ? `~${Math.ceil(state.loop.totalLen / (state.bot.speed * 0.87))}s / lap` : "—");
+    setText(ui.routeCoverage, `${covered}/${total} stations`);
+    updateCargo();
+    for (const color of COLORS) {
+      const count = state.route.pickupsByColor[color.id]?.length || 0;
+      const drops = state.route.dropsByColor[color.id]?.length || 0;
+      const element = contractElements[color.id];
+      setText(element, `${count}/2 pickups · ${drops}/2 drops`);
+      const connected = String(count > 0 && drops > 0);
+      if (element.parentElement.dataset.connected !== connected) element.parentElement.dataset.connected = connected;
+    }
+    setText(elSplices, String(state.splicesLeft));
+    setText(elRoute, state.loop && state.route.hasContract ? `${state.route.contractColors.length} live` : `${covered}/${total}`);
 
     if (mode === "run" || mode === "splice" || mode === "paused") {
-      const t = Math.max(0, (state.roundEndAtMs - displayNowMs()) / 1000);
-      elTime.textContent = fmtTime(t);
+      const t = Math.max(0, (state.roundEndAtMs - nowMs()) / 1000);
+      setText(elTime, fmtTime(t));
     } else {
-      elTime.textContent = "0:00";
+      setText(elTime, mode === "draw" ? "2:00" : "0:00");
     }
 
     const accessibleKey = [
@@ -790,7 +967,7 @@ import {
       const contracts = state.route.contractColors.length
         ? `${state.route.contractColors.join(", ")} contract${state.route.contractColors.length === 1 ? "" : "s"}`
         : "no complete color contract";
-      elAccessibleState.textContent = `${mode} mode. Route has ${contracts}. ${state.cargoIds.length} packages carried, ${state.delivered} delivered, ${state.missed} missed.`;
+      setText(elAccessibleState, `${mode} mode. Route has ${contracts}. ${state.cargoIds.length} packages carried, ${state.delivered} delivered, ${state.missed} missed.`);
     }
   }
 
@@ -798,9 +975,9 @@ import {
     const w = canvas.width;
     const h = canvas.height;
     const wash = ctx.createLinearGradient(0, 0, w, h);
-    wash.addColorStop(0, "#09192a");
-    wash.addColorStop(0.52, "#071321");
-    wash.addColorStop(1, "#0b1726");
+    wash.addColorStop(0, "#111f2b");
+    wash.addColorStop(0.52, "#101a24");
+    wash.addColorStop(1, "#14222a");
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, w, h);
 
@@ -836,6 +1013,14 @@ import {
     ctx.moveTo(660, -30);
     ctx.bezierCurveTo(620, 135, 720, 270, 672, 630);
     ctx.stroke();
+    ctx.font = "600 10px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(183, 211, 230, 0.3)";
+    ctx.fillText("NORTH QUARTER", 42, 30);
+    ctx.fillText("RIVERSIDE", 736, 376);
+    ctx.fillText("OLD TOWN", 38, 574);
+    ctx.fillText("SOUTH TERMINAL", 508, 574);
+    ctx.fillStyle = "rgba(183, 211, 230, 0.55)";
+    ctx.fillText("N ↑", 909, 34);
     ctx.restore();
   }
 
@@ -864,13 +1049,14 @@ import {
 
   function drawStations() {
     const pulse = 0.5 + 0.5 * Math.sin(nowMs() / 500);
-    for (const s of state.stations) {
+    const markerScale = Math.max(1, canvasScale * 0.85);
+    for (const [index, s] of state.stations.entries()) {
       const c = getColor(s.colorId);
-      const r = s.kind === "pickup" ? 10 : 11;
+      const r = (s.kind === "pickup" ? 10 : 11) * markerScale;
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.shadowColor = c.fill;
-      ctx.shadowBlur = 10 + pulse * 8;
+      ctx.shadowBlur = state.route.stationOnRoute[index] ? 8 + pulse * 3 : 3;
       ctx.lineWidth = 2;
       ctx.strokeStyle = c.stroke;
       ctx.fillStyle = "rgba(0,0,0,0.25)";
@@ -880,7 +1066,7 @@ import {
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = c.fill;
-        ctx.font = "800 10px ui-sans-serif, system-ui";
+        ctx.font = `800 ${10 * markerScale}px ui-sans-serif, system-ui`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("P", 0, 0.5);
@@ -890,10 +1076,26 @@ import {
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = c.fill;
-        ctx.font = "800 10px ui-sans-serif, system-ui";
+        ctx.font = `800 ${10 * markerScale}px ui-sans-serif, system-ui`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("D", 0, 0.5);
+      }
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(220, 233, 241, 0.75)";
+      ctx.font = `600 ${11 * canvasScale}px ui-monospace, monospace`;
+      const labelOnLeft = s.x > canvas.width - r - 35 * canvasScale;
+      ctx.textAlign = labelOnLeft ? "right" : "left";
+      ctx.fillText(stationLabel(index), (labelOnLeft ? -1 : 1) * (r + 6 * canvasScale), 1);
+      if (state.route.stationOnRoute[index]) {
+        ctx.strokeStyle = "rgba(199,243,107,0.5)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(0, 0, r + 4 * canvasScale, 0, TAU); ctx.stroke();
+      }
+      if (mode === "draw" && document.activeElement === canvas && selectedStation === index) {
+        ctx.strokeStyle = "#c7f36b";
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(0, 0, r + 9 * canvasScale, 0, TAU); ctx.stroke();
       }
       ctx.restore();
     }
@@ -949,7 +1151,7 @@ import {
       ctx.strokeStyle = c.stroke;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 16, 0, TAU);
+      ctx.arc(0, 0, Math.max(16, 12 * canvasScale), 0, TAU);
       ctx.stroke();
       ctx.restore();
     }
@@ -957,7 +1159,7 @@ import {
 
   function drawLoop() {
     const pts = state.loop ? state.loop.points : state.draw.points;
-    if (pts.length < 2) return;
+    if (pts.length < 1) return;
     const closed = Boolean(state.loop);
 
     ctx.save();
@@ -965,7 +1167,7 @@ import {
     ctx.lineCap = "round";
 
     // Glow underlay
-    ctx.strokeStyle = "rgba(6, 214, 160, 0.12)";
+    ctx.strokeStyle = "rgba(199, 243, 107, 0.10)";
     ctx.lineWidth = 10;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -974,13 +1176,36 @@ import {
     ctx.stroke();
 
     // Main line
-    ctx.strokeStyle = "rgba(6, 214, 160, 0.9)";
+    ctx.strokeStyle = "rgba(199, 243, 107, 0.9)";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     if (closed) ctx.lineTo(pts[0].x, pts[0].y);
     ctx.stroke();
+
+    if (closed) {
+      for (const segment of state.loop.segments) {
+        if (segment.len < 70) continue;
+        ctx.save();
+        ctx.translate((segment.a.x + segment.b.x) / 2, (segment.a.y + segment.b.y) / 2);
+        ctx.rotate(Math.atan2(segment.b.y - segment.a.y, segment.b.x - segment.a.x));
+        ctx.fillStyle = "#c7f36b";
+        ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    } else {
+      const first = pts[0];
+      ctx.strokeStyle = "#c7f36b";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.arc(first.x, first.y, 20, 0, TAU); ctx.stroke();
+      if (state.draw.cursor) {
+        ctx.strokeStyle = "rgba(199,243,107,0.45)";
+        ctx.beginPath(); ctx.moveTo(pts.at(-1).x, pts.at(-1).y); ctx.lineTo(state.draw.cursor.x, state.draw.cursor.y); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
 
     // Control points in draw mode
     if (mode === "draw" && !state.loop) {
@@ -997,7 +1222,13 @@ import {
     // Splice selection highlight
     if (mode === "splice" && state.loop) {
       const n = state.loop.points.length;
-      const edges = [state.splice.edgeA, state.splice.edgeB].filter((x) => x !== null);
+      const focusSegment = state.loop.segments[focusedEdge];
+      ctx.strokeStyle = "rgba(230,238,252,0.9)";
+      ctx.lineWidth = 5;
+      ctx.setLineDash([7, 7]);
+      ctx.beginPath(); ctx.moveTo(focusSegment.a.x, focusSegment.a.y); ctx.lineTo(focusSegment.b.x, focusSegment.b.y); ctx.stroke();
+      ctx.setLineDash([]);
+      const edges = state.splice.edgeA === null ? [] : [state.splice.edgeA];
       for (const e of edges) {
         const i = /** @type {number} */ (e);
         if (i < 0 || i >= n) continue;
@@ -1021,9 +1252,9 @@ import {
     const pulse = 0.5 + 0.5 * Math.sin(nowMs() / 130);
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.shadowColor = "rgba(6, 214, 160, 0.9)";
+    ctx.shadowColor = "rgba(199, 243, 107, 0.9)";
     ctx.shadowBlur = 18 + pulse * 8;
-    ctx.fillStyle = "rgba(6, 214, 160, 0.95)";
+    ctx.fillStyle = "#e6ffc1";
     ctx.beginPath();
     ctx.arc(0, 0, 8, 0, TAU);
     ctx.fill();
@@ -1052,7 +1283,7 @@ import {
 
   function drawRoundBar() {
     if (!(mode === "run" || mode === "splice" || mode === "paused")) return;
-    const remain = Math.max(0, (state.roundEndAtMs - displayNowMs()) / 1000);
+    const remain = Math.max(0, (state.roundEndAtMs - nowMs()) / 1000);
     const frac = clamp(remain / state.roundDurationS, 0, 1);
     const w = canvas.width;
     ctx.save();
@@ -1068,11 +1299,35 @@ import {
     drawBackdrop();
     drawGrid();
     drawHazards();
+    drawLoop();
     drawStations();
     drawPackages();
-    drawLoop();
     if (mode !== "draw") drawBot();
     drawRoundBar();
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const effect = effects[i];
+      const age = nowMs() - effect.born;
+      if (age > 1300) { effects.splice(i, 1); continue; }
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - age / 1300);
+      ctx.fillStyle = effect.color;
+      ctx.font = "800 18px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(effect.text, effect.x, effect.y - 24 - age / 45);
+      ctx.restore();
+    }
+    if (mode === "paused") {
+      ctx.save();
+      ctx.fillStyle = "rgba(10,17,24,0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#e6ffc1";
+      ctx.textAlign = "center";
+      ctx.font = `600 ${Math.max(26, 18 * canvasScale)}px ui-sans-serif, system-ui`;
+      ctx.fillText("Dispatch paused", canvas.width / 2, canvas.height / 2);
+      ctx.font = `${Math.max(14, 10 * canvasScale)}px ui-monospace, monospace`;
+      ctx.fillText("RESUME WHEN YOU’RE READY", canvas.width / 2, canvas.height / 2 + 32);
+      ctx.restore();
+    }
 
     if (!state.loop && mode === "draw") {
       // Light guidance: show nearest pickup -> drop relationship.
@@ -1115,7 +1370,7 @@ import {
   }
 
   function snapToStation(point, pointerType) {
-    const radius = pointerRadius(pointerType, STATION_SNAP_RADIUS, 28);
+    const radius = pointerType === "touch" ? Math.max(28, 22 * canvasScale) : pointerRadius(pointerType, STATION_SNAP_RADIUS, 28);
     let nearest = null;
     let nearestDistance = radius;
     for (const station of state.stations) {
@@ -1128,37 +1383,144 @@ import {
     return nearest ? { x: nearest.x, y: nearest.y } : point;
   }
 
-  function closeLoopIfNearStart(closeDist = 18) {
-    const pts = state.draw.points;
-    if (pts.length < 3) return false;
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    if (dist(first, last) > closeDist) return false;
+  function stationLabel(index) {
+    const station = state.stations[index];
+    return `${station.colorId === "gold" ? "G" : station.colorId[0].toUpperCase()}${index % 4 + 1}`;
+  }
 
-    // Drop last point (close to first) to avoid tiny segment.
-    pts.pop();
+  function resetDrawing() {
+    if (mode !== "draw") return;
+    state.loop = null;
+    state.draw = { points: [], dragging: false, cursor: null };
+    recomputeRouteInfo();
+    setMode("draw");
+  }
 
-    // Cleanup: thin + simplify.
-    let cleaned = uniqByKey(pts, 8);
+  function changeCity(seed) {
+    hideModal();
+    hideTutorial({ restoreFocus: false });
+    state.seed = seed;
+    resetRun({ keepLoop: false });
+    const url = new URL(window.location.href);
+    url.searchParams.set("seed", seed);
+    window.history.replaceState(null, "", url);
+  }
+
+  function addStation(index) {
+    if (mode !== "draw" || state.loop) return;
+    selectedStation = index;
+    const station = state.stations[index];
+    if (state.draw.points.length >= 3 && dist(station, state.draw.points[0]) < 1) {
+      lockLoop(state.draw.points);
+      return;
+    }
+    if (state.draw.points.length && dist(station, state.draw.points.at(-1)) < 1) return;
+    state.draw.points.push({ x: station.x, y: station.y });
+    recomputeRouteInfo();
+    setHint(`${stationLabel(index)} added. Choose another station, or close the loop after three stops.`);
+  }
+
+  function undoPoint() {
+    if (mode !== "draw") return;
+    if (state.loop) {
+      state.draw.points = state.loop.points.map((point) => ({ ...point }));
+      state.loop = null;
+      setHint("Loop reopened. Adjust your route, then close it again.");
+    } else {
+      state.draw.points.pop();
+      setHint("Last point removed.");
+    }
+    state.draw.dragging = false;
+    recomputeRouteInfo();
+  }
+
+  function suggestRoute() {
+    if (mode !== "draw" || state.loop || state.draw.points.length) return;
+    const remaining = state.stations.map((station) => ({ x: station.x, y: station.y }));
+    const points = [remaining.shift()];
+    while (remaining.length) {
+      let best = 0;
+      for (let i = 1; i < remaining.length; i++) {
+        if (dist(points.at(-1), remaining[i]) < dist(points.at(-1), remaining[best])) best = i;
+      }
+      points.push(remaining.splice(best, 1)[0]);
+    }
+    lockLoop(points);
+    setHint("Starter route connects all 12 stations. Dispatch it, or Undo to make it your own.");
+  }
+
+  function lockLoop(points) {
+    let cleaned = uniqByKey(points, 8);
     cleaned = simplifyByAngle(cleaned, 8);
     cleaned = uniqByKey(cleaned, 8);
-    if (cleaned.length < 4) return false;
-
+    if (cleaned.length < 3) {
+      setHint("Add at least three distinct points before closing the loop.");
+      return false;
+    }
     state.draw.points = [];
-    state.draw.closed = true;
+    state.draw.dragging = false;
+    state.draw.cursor = null;
     state.loop = buildLoop(cleaned);
-
-    // Place bot on loop start.
     state.bot.segIndex = 0;
     state.bot.segPos = 0;
-    const seg = state.loop.segments[0];
-    state.bot.pos = { x: seg.a.x, y: seg.a.y };
-
+    state.bot.pos = { ...state.loop.points[0] };
     recomputeRouteInfo();
-    setMode("draw"); // remain in draw/ready state until Start.
-    setHint("Loop locked. Press Enter/Start to run. You can Reset Loop to redraw.");
-    updateButtons();
+    setMode("draw");
+    setHint(state.route.hasContract ? "Loop ready. Dispatch when you are ready; planning has no time limit." : "This loop needs a same-color pickup and dropoff. Undo to edit it.");
     return true;
+  }
+
+  function closeLoopIfNearStart(closeDist = 18) {
+    const points = state.draw.points;
+    if (points.length < 4 || dist(points[0], points.at(-1)) > closeDist) return false;
+    return lockLoop(points.slice(0, -1));
+  }
+
+  function toggleSplice() {
+    syncLiveTime();
+    if (mode === "splice") {
+      state.splice.edgeA = null;
+      setMode("run");
+      return;
+    }
+    if (mode !== "run" || !state.loop || state.loop.points.length < 4 || state.splicesLeft <= 0) return;
+    state.splice.edgeA = null;
+    focusedEdge = 0;
+    setMode("splice");
+    canvas.focus({ preventScroll: true });
+  }
+
+  function selectSpliceEdge(index) {
+    syncLiveTime();
+    if (mode !== "splice" || !state.loop) return;
+    focusedEdge = index;
+    if (state.splice.edgeA === null) {
+      state.splice.edgeA = index;
+      setHint(`Edge ${index + 1} selected. Choose a non-adjacent edge to reconnect the route.`);
+      return;
+    }
+    const beforePoints = state.loop.points;
+    const newPoints = twoOptSpliceCycle(beforePoints, state.splice.edgeA, index);
+    if (!newPoints.some((point, i) => point !== beforePoints[i])) {
+      setHint("Choose two different, non-adjacent edges. This selection costs no splice.");
+      return;
+    }
+    const candidate = buildLoop(newPoints);
+    const route = computeRouteInfo(candidate);
+    if (!route.hasContract) {
+      setHint("That splice would disconnect every contract. Choose another edge; no splice was used.");
+      return;
+    }
+    const projection = projectPointToLoop(candidate, state.bot.pos);
+    state.loop = candidate;
+    state.route = route;
+    state.bot.segIndex = projection.segIndex;
+    state.bot.segPos = projection.segPos;
+    state.bot.pos = projection.pos;
+    state.splicesLeft--;
+    state.splice.edgeA = null;
+    setMode("run");
+    logEvent(`Route rewired · ${state.splicesLeft} splices remaining`);
   }
 
   canvas.addEventListener("pointerdown", (e) => {
@@ -1181,69 +1543,31 @@ import {
       const p = snapToStation(rawPoint, e.pointerType);
       state.draw.dragging = true;
       state.draw.points.push({ x: p.x, y: p.y });
-      updateButtons();
+      recomputeRouteInfo();
       return;
     }
 
     if (mode === "splice") {
-      if (!state.loop) return;
       const hit = nearestSegmentIndex(state.loop.points, rawPoint);
-      if (hit.idx < 0) return;
-      const hitRadius = pointerRadius(e.pointerType, 18, 34);
-      if (hit.d2 > hitRadius * hitRadius) return;
-      if (state.splice.edgeA === null) {
-        state.splice.edgeA = hit.idx;
-        return;
-      }
-      if (state.splice.edgeB === null) {
-        state.splice.edgeB = hit.idx;
-
-        const edgeA = state.splice.edgeA;
-        const edgeB = state.splice.edgeB;
-        if (edgeA === null || edgeB === null) return;
-        if (edgeA === edgeB) {
-          state.splice.edgeB = null;
-          return;
-        }
-
-        const beforePos = { x: state.bot.pos.x, y: state.bot.pos.y };
-        const beforePoints = state.loop.points;
-        const newPoints = twoOptSpliceCycle(beforePoints, edgeA, edgeB);
-        const changed =
-          newPoints.length !== beforePoints.length || newPoints.some((pt, idx) => pt !== beforePoints[idx]);
-        if (!changed) {
-          // Invalid/no-op (most commonly adjacent edges). Don't consume a splice.
-          state.splice.edgeB = null;
-          setHint("Invalid splice. Pick two non-adjacent edges on the loop.");
-          return;
-        }
-        state.loop = buildLoop(newPoints);
-        recomputeRouteInfo();
-
-        const proj = projectPointToLoop(state.loop, beforePos);
-        state.bot.segIndex = proj.segIndex;
-        state.bot.segPos = proj.segPos;
-        state.bot.pos = proj.pos;
-
-        state.splicesLeft = Math.max(0, state.splicesLeft - 1);
-        state.splice.edgeA = null;
-        state.splice.edgeB = null;
-        setMode("run");
-        return;
-      }
+      const hitRadius = e.pointerType === "touch" ? Math.max(34, 22 * canvasScale) : pointerRadius(e.pointerType, 18, 34);
+      if (hit.idx >= 0 && hit.d2 <= hitRadius * hitRadius) selectSpliceEdge(hit.idx);
     }
   });
 
   canvas.addEventListener("pointermove", (e) => {
     if (mode !== "draw") return;
-    if (!state.draw.dragging) return;
     if (state.loop) return;
-    const p = snapToStation(canvasToWorld(canvas, e.clientX, e.clientY), e.pointerType);
+    const raw = canvasToWorld(canvas, e.clientX, e.clientY);
+    const bounded = { x: clamp(raw.x, 0, canvas.width), y: clamp(raw.y, 0, canvas.height) };
+    const p = snapToStation(bounded, e.pointerType);
+    state.draw.cursor = p;
+    if (!state.draw.dragging) return;
     const pts = state.draw.points;
     if (pts.length === 0) return;
     const last = pts[pts.length - 1];
     if (dist(p, last) < 10) return;
     pts.push({ x: p.x, y: p.y });
+    recomputeRouteInfo();
   });
 
   canvas.addEventListener("pointerup", (e) => {
@@ -1278,6 +1602,48 @@ import {
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+    // Let focused controls keep native Enter/Space behavior; Escape remains global.
+    const nativeActivation = e.key === "Enter" || e.key === " " || e.code === "Space";
+    if (nativeActivation && target instanceof Element && target.closest("button, a, summary, select, [contenteditable=true]")) return;
+    if (!modal.classList.contains("hidden")) return;
+    if (target === canvas && mode === "splice") {
+      const direction = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (direction) {
+        e.preventDefault();
+        focusedEdge = (focusedEdge + direction + state.loop.points.length) % state.loop.points.length;
+        setHint(`Edge ${focusedEdge + 1} of ${state.loop.points.length}. Press Space to select it.`);
+        return;
+      }
+      if (e.code === "Space") {
+        e.preventDefault();
+        selectSpliceEdge(focusedEdge);
+        return;
+      }
+    }
+    if (target === canvas && mode === "draw" && !state.loop) {
+      const direction = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (direction) {
+        e.preventDefault();
+        selectedStation = (selectedStation + direction + state.stations.length) % state.stations.length;
+        setHint(`${stationLabel(selectedStation)} selected. Press Space to add this station.`);
+        return;
+      }
+      if (e.code === "Space") {
+        e.preventDefault();
+        addStation(selectedStation);
+        return;
+      }
+    }
+    if ((e.key === "Backspace" || e.key.toLowerCase() === "z") && mode === "draw") {
+      e.preventDefault();
+      undoPoint();
+      return;
+    }
+    if (e.key.toLowerCase() === "c" && mode === "draw" && !state.loop) {
+      e.preventDefault();
+      lockLoop(state.draw.points);
+      return;
+    }
     if (e.key === " " || e.code === "Space") {
       e.preventDefault();
       pauseToggle();
@@ -1292,11 +1658,7 @@ import {
         hideTutorial({ remember: false });
         return;
       }
-      if (mode === "splice") {
-        state.splice.edgeA = null;
-        state.splice.edgeB = null;
-        setMode("run");
-      }
+      if (mode === "splice") toggleSplice();
       return;
     }
     if (e.key.toLowerCase() === "t") {
@@ -1311,42 +1673,45 @@ import {
     if (e.key === "Enter") {
       if (mode === "draw" && state.loop && state.route.hasContract) {
         hideModal();
-        resetRun({ keepLoop: true, keepSeed: true });
+        resetRun({ keepLoop: true });
       }
       return;
     }
     if (e.key.toLowerCase() === "r") {
-      if (mode === "draw") {
-        state.loop = null;
-        state.draw.points = [];
-        state.draw.dragging = false;
-        state.draw.closed = false;
-        setMode("draw");
-        updateButtons();
-      }
+      resetDrawing();
       return;
     }
     if (e.key.toLowerCase() === "n") {
-      setSeed(randomSeed(Math.random));
-      // Keep loop but reset run if currently running.
-      if (mode === "run" || mode === "splice" || mode === "paused") resetRun({ keepLoop: true, keepSeed: true });
+      changeCity(randomSeed(Math.random));
       return;
     }
-    if (e.key.toLowerCase() === "s") {
-      if (mode === "run" && state.loop && state.splicesLeft > 0) {
-        state.splice.edgeA = null;
-        state.splice.edgeB = null;
-        setMode("splice");
-      }
-    }
+    if (e.key.toLowerCase() === "s") toggleSplice();
   });
 
   // --- UI events
 
-  btnNewSeed.addEventListener("click", () => {
-    setSeed(randomSeed(Math.random));
-    if (mode === "run" || mode === "splice" || mode === "paused") resetRun({ keepLoop: true, keepSeed: true });
+  btnNewSeed.addEventListener("click", () => changeCity(randomSeed(Math.random)));
+  ui.btnDaily.addEventListener("click", () => changeCity(dailySeed()));
+  ui.btnUndo.addEventListener("click", undoPoint);
+  ui.btnCloseLoop.addEventListener("click", () => lockLoop(state.draw.points));
+  ui.btnSuggest.addEventListener("click", suggestRoute);
+  ui.btnSound.addEventListener("click", async () => {
+    try {
+      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await audioContext.resume();
+      soundEnabled = !soundEnabled;
+      ui.btnSound.textContent = soundEnabled ? "Sound on" : "Sound off";
+      ui.btnSound.setAttribute("aria-pressed", String(soundEnabled));
+      if (soundEnabled) playTone("pickup");
+    } catch { setHint("Audio is unavailable in this browser."); }
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && (mode === "run" || mode === "splice")) {
+      pauseToggle();
+      setHint("Paused while you were away. Resume when you are ready.");
+    }
+  });
+  canvas.addEventListener("pointerleave", () => { state.draw.cursor = null; });
 
   btnCopyLink.addEventListener("click", async () => {
     try {
@@ -1384,34 +1749,21 @@ import {
 
   document.addEventListener("fullscreenchange", () => {
     const active = Boolean(document.fullscreenElement);
-    btnFullscreen.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+    btnFullscreen.setAttribute("aria-label", active ? "Exit fullscreen" : "Enter fullscreen");
+    btnFullscreen.title = active ? "Exit fullscreen (F)" : "Enter fullscreen (F)";
     btnFullscreen.setAttribute("aria-pressed", String(active));
   });
 
-  btnResetLoop.addEventListener("click", () => {
-    if (mode !== "draw") return;
-    state.loop = null;
-    state.draw.points = [];
-    state.draw.dragging = false;
-    state.draw.closed = false;
-    setMode("draw");
-    updateButtons();
-  });
+  btnResetLoop.addEventListener("click", resetDrawing);
 
   btnStart.addEventListener("click", () => {
     if (mode !== "draw") return;
     if (!state.loop || !state.route.hasContract) return;
     hideModal();
-    resetRun({ keepLoop: true, keepSeed: true });
+    resetRun({ keepLoop: true });
   });
 
-  btnSplice.addEventListener("click", () => {
-    if (mode !== "run") return;
-    if (!state.loop || state.splicesLeft <= 0) return;
-    state.splice.edgeA = null;
-    state.splice.edgeB = null;
-    setMode("splice");
-  });
+  btnSplice.addEventListener("click", toggleSplice);
 
   btnPause.addEventListener("click", () => {
     pauseToggle();
@@ -1419,28 +1771,40 @@ import {
 
   elSeed.addEventListener("change", () => {
     const s = elSeed.value.trim();
-    if (!s) return;
-    setSeed(s);
-    if (mode === "run" || mode === "splice" || mode === "paused") resetRun({ keepLoop: true, keepSeed: true });
+    if (!s) { elSeed.value = state.seed; return; }
+    changeCity(s);
   });
 
   btnModalPrimary.addEventListener("click", () => {
     hideModal();
     // Keep loop and seed, restart.
-    if (state.loop) resetRun({ keepLoop: true, keepSeed: true });
+    if (state.loop) resetRun({ keepLoop: true });
     else setMode("draw");
   });
 
-  btnModalSecondary.addEventListener("click", () => {
+  btnModalReplan.addEventListener("click", () => {
+    const points = state.loop ? state.loop.points.map((point) => ({ ...point })) : [];
     hideModal();
-    setSeed(randomSeed(Math.random));
-    if (state.loop) resetRun({ keepLoop: true, keepSeed: true });
-    else setMode("draw");
+    resetRun({ keepLoop: false });
+    state.draw.points = points;
+    recomputeRouteInfo();
+    setHint("Your previous route is open for editing. Undo or add stops, then close it and dispatch again.");
+    canvas.focus();
+  });
+
+  btnModalSecondary.addEventListener("click", () => changeCity(randomSeed(Math.random)));
+
+  // Keep modal keyboard focus within the result actions.
+  modal.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const buttons = [...modal.querySelectorAll("button:not(:disabled)")];
+    const first = buttons[0], last = buttons.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   });
 
   // --- Main loop
 
-  let lastT = nowMs();
 
   function simulate(dt) {
     if (!(mode === "run" || mode === "splice")) return;
@@ -1461,7 +1825,7 @@ import {
   }
 
   window.render_game_to_text = () => {
-    const snapshotNowMs = displayNowMs();
+    const snapshotNowMs = nowMs();
     const routePoints = state.loop ? state.loop.points : state.draw.points;
     const activePackages = state.packages
       .filter((pkg) => !pkg.delivered && !pkg.missed)
@@ -1479,12 +1843,16 @@ import {
       mode,
       seed: state.seed,
       round: state.round,
+      elapsedMs: Math.round(nowMs()),
       roundTimeRemainingMs:
         mode === "run" || mode === "splice" || mode === "paused"
           ? Math.max(0, Math.round(state.roundEndAtMs - snapshotNowMs))
           : 0,
       score: Math.floor(state.score),
       combo: state.combo,
+      bestCombo: state.bestCombo,
+      record: bestForSeed(records, state.seed),
+      selectedStation,
       delivered: state.delivered,
       missed: state.missed,
       splicesLeft: state.splicesLeft,
@@ -1495,7 +1863,7 @@ import {
         pickupsCovered: state.route.pickupsCovered,
         dropsCovered: state.route.dropsCovered,
         contractColors: state.route.contractColors.slice(),
-        ready: state.route.hasContract,
+        ready: Boolean(state.loop) && state.route.hasContract,
       },
       bot: state.loop
         ? {
@@ -1522,7 +1890,8 @@ import {
         remainingMs:
           hazard.kind === "jam" ? Math.max(0, Math.round(hazard.ttlMs - (snapshotNowMs - hazard.bornAtMs))) : null,
       })),
-      spliceSelection: [state.splice.edgeA, state.splice.edgeB],
+      spliceSelection: [state.splice.edgeA, null],
+      focusedEdge,
       tutorial: {
         visible: !tutorialDock.classList.contains("hidden"),
         title: tutorialTitle.textContent,
@@ -1543,24 +1912,19 @@ import {
 
   window.advanceTime = (ms) => {
     const durationMs = Math.max(0, Number.isFinite(Number(ms)) ? Number(ms) : 0);
-    if (virtualNowMs === null) virtualNowMs = lastT;
-    const targetMs = virtualNowMs + durationMs;
-    const fixedStepMs = 1000 / 60;
-    while (targetMs - virtualNowMs > 0.001) {
-      const stepMs = Math.min(fixedStepMs, targetMs - virtualNowMs);
-      virtualNowMs += stepMs;
-      simulate(stepMs / 1000);
-    }
-    virtualNowMs = targetMs;
-    lastT = virtualNowMs;
+    manualClock = true;
+    if (mode === "run" || mode === "splice") simulationClock.advance(durationMs);
     renderFrame();
   };
 
-  function tick() {
-    const t = nowMs();
-    const dt = virtualNowMs === null ? clamp((t - lastT) / 1000, 0, 0.05) : 0;
-    lastT = t;
-    if (virtualNowMs === null) simulate(dt);
+  function syncLiveTime(frameAtMs = performance.now()) {
+    const elapsedMs = Math.max(0, frameAtMs - lastFrameAtMs);
+    lastFrameAtMs = Math.max(lastFrameAtMs, frameAtMs);
+    if (!manualClock && (mode === "run" || mode === "splice")) simulationClock.advance(elapsedMs);
+  }
+
+  function tick(frameAtMs) {
+    syncLiveTime(frameAtMs);
     renderFrame();
     requestAnimationFrame(tick);
   }
@@ -1573,9 +1937,9 @@ import {
     state.loop = null;
     state.draw.points = [];
     setMode("draw");
-    updateButtons();
     btnTutorial.setAttribute("aria-expanded", "false");
     btnFullscreen.disabled = !document.fullscreenEnabled;
+    logEvent("City ready. Connect matching stations.");
     setHint("Draw a closed loop around pickups/dropoffs. Close by clicking near the first point.");
     requestAnimationFrame(tick);
     if (!hasCompletedTutorial()) showTutorial(0);

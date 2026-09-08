@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Run live play and virtual replays through one fixed simulation clock; preserve pending time at pause and splice boundaries and verify identical unchanged-route outcomes across frame rates and stalls.
+- Move phase-specific controls and cargo destinations beside the map; keep personal bests and station labels readable on phones.
+- Reject splices that disconnect the final contract; support keyboard edge selection and touch cancellation.
+- Keep the guide in view and prevent resuming behind it; allow editing a finished route in the same city.
+- Add Chromium/WebKit test selection and full-shift replay and interaction regressions.
+- Rebuilt the interface as a responsive dispatch console with an unobstructed map, clearer contract coverage, lap estimate, cargo, and delivery feed.
+- Added starter routes, Undo/reopen, explicit loop closure, labeled stations, keyboard route construction, and optional synthesized delivery sounds.
+- Added global UTC daily cities, per-city personal records, run ratings, and actual best-combo tracking.
+- Made new orders serviceable by the current route and rewarded additional connected colors.
+- Limited hazard penalties to the courier being inside the visible zone instead of anywhere on a crossing route segment.
+- Fixed replay state and planning-time mutation drift, stale coverage after reset, native keyboard button activation, and freehand angle cleanup.
+- Pause on tab hiding and while reading the tutorial; preserve package visuals while paused.
+- Expanded unit and browser verification for progression and the full planning/retry flow.
+
+
 All notable changes to Loop Courier are documented here.
 
 ## 1.0.0 — 2026-07-22

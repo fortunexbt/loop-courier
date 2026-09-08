@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser-engine.mjs";
 
 const baseUrl = process.env.LOOP_COURIER_URL || "http://127.0.0.1:4189";
 const seededUrl = `${baseUrl}/?seed=METRO-7`;
@@ -14,6 +14,7 @@ function readState(page) {
 
 async function clickWorld(page, x, y, { touch = false } = {}) {
   const canvas = page.locator("#game");
+  await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   assert.ok(box, "game canvas must have a bounding box");
   const size = await canvas.evaluate((element) => ({ width: element.width, height: element.height }));
@@ -38,12 +39,12 @@ async function drawBlueContract(page, options = {}) {
   return routeState;
 }
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser();
 const report = {};
 
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
+  if (browser.browserType().name() === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
   const page = await context.newPage();
   await page.goto(seededUrl, { waitUntil: "networkidle" });
   await page.waitForFunction(() => typeof window.render_game_to_text === "function");
@@ -68,6 +69,7 @@ try {
   const deliveredState = await readState(page);
   assert.ok(deliveredState.delivered >= 1, "the seeded blue package must be delivered");
   assert.ok(deliveredState.score > 0, "delivery must increase score");
+  assert.ok(deliveredState.packages.every((pkg) => deliveredState.route.contractColors.includes(pkg.color)), "new orders must belong to connected contracts");
   console.log(`desktop: delivered ${deliveredState.delivered}`);
 
   await page.locator("#btnSplice").click();
@@ -97,7 +99,8 @@ try {
   }
   console.log("desktop: tutorial and fullscreen verified");
 
-  await page.screenshot({ path: "assets/loop-courier-showcase.png" });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: "assets/loop-courier-showcase.png", fullPage: true });
   await page.locator("#game").screenshot({ path: "output/web-game-delivery.png" });
 
   await page.evaluate(() => window.advanceTime(110000));
@@ -123,6 +126,8 @@ try {
   const seedBeforeButton = (await readState(page)).seed;
   await page.locator("#btnNewSeed").click();
   assert.notEqual((await readState(page)).seed, seedBeforeButton);
+  assert.equal((await readState(page)).route.closed, false, "new city starts a fresh plan");
+  await page.locator("#btnSuggest").click();
   await page.locator("#btnResetLoop").click();
   assert.equal((await readState(page)).route.closed, false);
 
