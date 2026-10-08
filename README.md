@@ -62,6 +62,13 @@ Opening the guide or leaving the tab pauses the shift. Sound starts off.
 
 </details>
 
+## How it works
+
+- **Seeded cities.** A string seed is hashed (`xmur3`) into a `mulberry32` generator, so the same seed always produces the same stations, orders and hazards.
+- **Splicing.** Splice route is a 2-opt move on the route cycle: two non-adjacent edges are cut and the loop is reconnected (`twoOptSpliceCycle` in `game-core.js`).
+- **One simulation clock.** Live play and replay both advance a fixed-step clock (`simulation-clock.js`), so a seeded run plays out the same at 30 fps or 144 fps.
+- **Tested in two engines.** Unit tests cover the core, and browser suites replay full shifts in Chromium and WebKit in CI.
+
 ## Run locally
 
 Use Node.js 22 or newer.
