@@ -4,9 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#10191f" />
-    <meta name="description" content="The city is yours to connect. Draw a route, dispatch your courier, and keep deliveries moving in this daily city strategy game." />
-    <title>Loop Courier — The night shift</title>
+    <meta name="description" content="Draw one delivery loop through a seeded city, then keep parcels moving for two minutes with three chances to rewire the route. Free, in the browser, with a new daily city." />
+    <title>Loop Courier, a route-drawing delivery game</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Loop Courier" />
+    <meta property="og:title" content="Loop Courier" />
+    <meta property="og:description" content="Draw one delivery loop. Your courier rides it for two minutes. Same city for everyone each day." />
+    <meta property="og:url" content="https://loop-courier.vercel.app/" />
+    <meta property="og:image" content="https://loop-courier.vercel.app/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Loop Courier: a glowing delivery loop joining colored pickup and dropoff stations on a night city map." />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <link rel="manifest" href="site.webmanifest" />
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -20,8 +31,9 @@
             <circle cx="13" cy="12" r="5" fill="currentColor" /><circle cx="34" cy="36" r="5" fill="currentColor" />
             <path d="m29 8 5 4-5 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <div><div class="eyebrow">Independent delivery network</div><h1>Loop Courier<span class="brand-period">.</span></h1></div>
+          <h1>Loop Courier<span class="brand-period">.</span></h1>
         </div>
+        <p class="tagline">Draw one delivery loop through the city. Your courier rides it for two minutes, and you get three chances to rewire it.</p>
         <div class="city-actions">
           <div class="personal-best"><span class="eyebrow">Personal best</span><span id="bestScore">0</span></div>
           <button id="btnDaily" class="daily-button" type="button" title="Play the city shared by everyone today"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M6.5 2.5v4m7-4v4m-10 2h13M7 12h2m2 0h2" /></svg>Daily city</button>
@@ -93,7 +105,7 @@
         <div class="seed-controls"><label class="seed"><span>City code</span><input id="seedInput" type="text" spellcheck="false" autocomplete="off" aria-label="City seed code" /></label><button id="btnCopyLink" class="text-button" type="button" title="Copy a link to this city">Share city <span aria-hidden="true">↗</span></button></div>
         <div class="footer-right"><span class="keyboard-hint"><kbd>Enter</kbd> dispatch <span>·</span> <kbd>Space</kbd> pause</span><button id="btnSound" class="text-button" type="button" aria-pressed="false">Sound off</button></div>
       </footer>
-      <section id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1"><div class="card"><div class="eyebrow">Shift report</div><h2 id="modalTitle" class="mTitle">Round over</h2><div id="modalBody" class="mBody"></div><div class="mActions"><button id="btnModalSecondary" type="button">New city</button><button id="btnModalReplan" type="button">Edit this route</button><button id="btnModalPrimary" class="primary-button" type="button">Run it again</button></div></div></section>
+      <section id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1"><div class="card"><div class="eyebrow">Shift report</div><h2 id="modalTitle" class="mTitle">Round over</h2><div id="modalBody" class="mBody"></div><div class="share-row"><button id="btnShareResult" class="share-button" type="button">Share result <span aria-hidden="true">↗</span></button><p id="shareStatus" class="share-status" role="status"></p></div><div class="mActions"><button id="btnModalSecondary" type="button">New city</button><button id="btnModalReplan" type="button">Edit this route</button><button id="btnModalPrimary" class="primary-button" type="button">Run it again</button></div></div></section>
     </main>
     <script type="module" src="main.js"></script>
   </body>
