@@ -50,6 +50,4 @@ jobs:
         if: always()
         with:
           name: loop-courier-browser-smoke-${{ matrix.browser }}
-          path: |
-            output/
-            assets/loop-courier-showcase.png
+          path: output/

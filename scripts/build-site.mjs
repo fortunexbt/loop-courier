@@ -7,11 +7,11 @@ const outputRoot = resolve(projectRoot, "site");
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(resolve(outputRoot, "assets"), { recursive: true });
 
-for (const file of ["index.html", "style.css", "main.js", "game-core.js", "progression.js", "simulation-clock.js", "site.webmanifest"]) {
+for (const file of ["index.html", "404.html", "style.css", "main.js", "game-core.js", "progression.js", "simulation-clock.js", "site.webmanifest"]) {
   await cp(resolve(projectRoot, file), resolve(outputRoot, file));
 }
 
-for (const file of ["favicon.svg", "loop-courier-showcase.png"]) {
+for (const file of ["favicon.svg", "apple-touch-icon.png", "og.png"]) {
   await cp(resolve(projectRoot, "assets", file), resolve(outputRoot, "assets", file));
 }
 
