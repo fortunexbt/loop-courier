@@ -6,21 +6,21 @@
 
 Draw a delivery loop, send your courier into the city, and keep the parcels moving.
 
-[**Play in your browser →**](https://fortunexbt.github.io/loop-courier/) · [Try city METRO-7](https://fortunexbt.github.io/loop-courier/?seed=METRO-7) · [Run locally](#run-locally)
+[**Play it now**](https://loop-courier-game.vercel.app/) · [Try city METRO-7](https://loop-courier-game.vercel.app/?seed=METRO-7) · [Run locally](#run-locally)
 
 Mouse, touch, or keyboard. No account needed.
 
 </div>
 
-[![Loop Courier during a delivery shift: a glowing route connects pickup and dropoff stations, with score, cargo, and route controls alongside the map.](assets/loop-courier-showcase.png)](https://fortunexbt.github.io/loop-courier/)
+[![Loop Courier mid-shift: a glowing route joins red, blue and gold pickups and dropoffs, with score, timer and dispatch log alongside the map.](docs/screenshot.webp)](https://loop-courier-game.vercel.app/)
 
 ## Your first shift
 
-1. **Plan a loop.** Connect a circle pickup to a square dropoff of the same color, then close the route. Hit **Starter route** if you want to get moving immediately. Planning has no timer.
+1. **Plan a loop.** On your first visit a dotted line traces a sample loop on the map; drag your own the same way. Connect a circle pickup to a square dropoff of the same color, then close the route. Hit **Starter route** if you want to get moving immediately. Planning has no timer.
 2. **Dispatch your courier.** You have two minutes to deliver. The courier follows your loop automatically, carrying up to three parcels. Watch their destinations and deadlines under the map.
 3. **Adapt on the move.** Traffic jams slow you down; toll zones eat into your score. Use **Splice route** to reconnect two non-adjacent edges while the courier keeps moving. You get three splices per shift.
 
-At the end, run the route again or choose **Edit this route** to try a better plan in the same city.
+At the end, the shift report shows your score, deliveries, best combo and rank. **Share result** sends the score with a link to the same city (`?seed=`), so a friend plays the exact map you did. Or run the route again, or choose **Edit this route** to try a better plan.
 
 ## More coverage, or a faster lap?
 
@@ -80,7 +80,23 @@ npm ci
 npm run dev
 ```
 
-Open [localhost:4173](http://127.0.0.1:4173). The game runs directly from source—there is no build step to play locally.
+Open [localhost:4173](http://127.0.0.1:4173). The game runs straight from source, with no build step. `npm run build` copies the static files into `site/`, which is what Vercel and GitHub Pages serve.
+
+## Tests
+
+```bash
+npm run verify          # syntax check and unit tests
+PORT=4189 npm run dev & # then, in another shell:
+npm run test:browser    # four Playwright suites, Chromium by default
+```
+
+Set `LOOP_COURIER_BROWSER=webkit` to run the browser suites in WebKit. CI runs both.
+
+## Limits
+
+- Scores and personal bests live in this browser's local storage. There is no account and no online leaderboard.
+- Sharing works through the city seed in the URL. Two people get the same map, orders and hazards, but each plays alone.
+- Sound uses Web Audio and starts off.
 
 Built with Canvas, JavaScript modules, and browser APIs. No runtime dependencies.
 
