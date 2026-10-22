@@ -1,17 +1,23 @@
 {
   "name": "Loop Courier",
   "short_name": "Loop Courier",
-  "description": "Draw and splice a seeded transit loop before delivery deadlines expire.",
+  "description": "Draw one delivery loop through a seeded city and keep parcels moving for two minutes.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#09192a",
-  "theme_color": "#09192a",
+  "background_color": "#10191f",
+  "theme_color": "#10191f",
   "icons": [
     {
       "src": "assets/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
       "purpose": "any"
     }
   ]
