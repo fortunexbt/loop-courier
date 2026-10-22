@@ -5,3 +5,4 @@ progress.md
 scripts/.playwright-skill-loader.mjs
 .DS_Store
 npm-debug.log*
+.vercel

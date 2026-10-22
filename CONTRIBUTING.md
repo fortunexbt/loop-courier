@@ -75,6 +75,8 @@ Deploy the generated `site/` directory with any static host. Application URLs ar
 
 The included GitHub Pages workflow verifies and builds the site, then publishes `site/` on pushes to `main`. Set **GitHub Actions** as the Pages source in repository settings.
 
+Vercel builds the same `site/` directory (`vercel.json` sets the build command and output). The production demo is at https://loop-courier-game.vercel.app/. `404.html` uses root-relative links, so it is meant for the Vercel deployment.
+
 ## Good expansion points
 
 - Export/import of local daily-seed score summaries.
