@@ -50,8 +50,7 @@ try {
   await page.waitForFunction(() => typeof window.render_game_to_text === "function");
   console.log("desktop: loaded");
 
-  assert.equal((await readState(page)).tutorial.visible, true);
-  await page.locator("#btnTutSkip").click();
+  assert.equal((await readState(page)).tutorial.visible, false, "first load teaches with the coach demo, not a modal guide");
   await drawBlueContract(page);
   console.log("desktop: route ready");
   await page.keyboard.press("Enter");
@@ -150,7 +149,6 @@ try {
   await mobile.goto(seededUrl, { waitUntil: "networkidle" });
   await mobile.waitForFunction(() => typeof window.render_game_to_text === "function");
   console.log("mobile: loaded");
-  await mobile.locator("#btnTutSkip").click();
   const metrics = await mobile.evaluate(() => ({
     documentWidth: document.documentElement.scrollWidth,
     viewportWidth: document.documentElement.clientWidth,

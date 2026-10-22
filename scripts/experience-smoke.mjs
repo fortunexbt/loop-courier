@@ -11,7 +11,6 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`${baseUrl}/?seed=METRO-7`);
-  await page.locator("#btnTutSkip").click();
   assert.equal(await page.locator("#btnSuggest").count(), 1, "a first playable route should be one click away");
   await page.evaluate(() => window.advanceTime(20000));
   await page.locator("#btnSuggest").click();
@@ -115,7 +114,6 @@ try {
   const blocked = await browser.newPage();
   await blocked.addInitScript(() => { Storage.prototype.setItem = () => { throw new Error("blocked"); }; });
   await blocked.goto(`${baseUrl}/?seed=METRO-7`);
-  await blocked.locator("#btnTutSkip").click();
   await blocked.evaluate(() => window.advanceTime(0));
   await blocked.locator("#btnSuggest").click();
   await blocked.locator("#btnStart").click();
