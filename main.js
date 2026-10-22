@@ -1,4 +1,5 @@
 import { createSimulationClock } from "./simulation-clock.js";
+import { MISS_PENALTY, deliveryPoints, spawnIntervalMs } from "./economy.js";
 import { dailySeed, readRecords, saveResult, bestForSeed, rankForResult } from "./progression.js";
 import {
   buildLoop,
@@ -290,7 +291,7 @@ import {
     },
     {
       title: "Dispatch the courier",
-      body: "Dispatch unlocks when a color contract is connected. New orders use connected stations only. More connected colors earn bigger delivery bonuses. Your courier carries up to three packages.",
+      body: "Dispatch unlocks when a color contract is connected. New orders use connected stations only. A loop that covers more stations draws more orders, and each extra color pays more per delivery. Your courier carries up to three packages.",
       target: btnStart,
     },
     {
@@ -892,15 +893,14 @@ import {
         cargoDirty = true;
         pkg.carried = false;
         state.cargoIds = state.cargoIds.filter((id) => id !== pkgId);
-        const base = 30 + 10 * Math.max(0, state.route.contractColors.length - 1);
         state.combo = state.combo + 1;
         state.bestCombo = Math.max(state.bestCombo, state.combo);
-        const mult = 1 + Math.min(12, state.combo) * 0.12;
-        state.score += base * mult;
+        const points = deliveryPoints(state.route.contractColors.length, state.combo);
+        state.score += points;
         state.delivered += 1;
-        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `+${Math.round(base * mult)}`, born: nowMs(), color: "#c7f36b" });
+        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `+${Math.round(points)}`, born: nowMs(), color: "#c7f36b" });
         if (!reducedMotion.matches) elScore.animate([{ transform: "scale(1.22)" }, { transform: "scale(1)" }], { duration: 320, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-        logEvent(`${getColor(pkg.colorId).label} delivered · +${Math.round(base * mult)} · combo ${state.combo}`, "delivery");
+        logEvent(`${getColor(pkg.colorId).label} delivered · +${Math.round(points)} · combo ${state.combo}`, "delivery");
         playTone("delivery");
       }
     }
@@ -935,9 +935,9 @@ import {
         state.cargoIds = state.cargoIds.filter((id) => id !== pkg.id);
         state.missed += 1;
         state.combo = 0;
-        state.score = Math.max(0, state.score - 18);
-        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: "−18", born: nowMs(), color: "#fb8299" });
-        logEvent(`${getColor(pkg.colorId).label} deadline missed · −18`, "warning");
+        state.score = Math.max(0, state.score - MISS_PENALTY);
+        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `−${MISS_PENALTY}`, born: nowMs(), color: "#fb8299" });
+        logEvent(`${getColor(pkg.colorId).label} deadline missed · −${MISS_PENALTY}`, "warning");
         playTone("miss");
         // Missed deadlines add a toll bubble near the miss location to push reroutes.
         state.hazards.push({
@@ -963,10 +963,8 @@ import {
     if (now < state.nextSpawnAtMs) return;
     spawnPackage();
     const rng = state.rng;
-    const baseEveryMs = 2600;
-    const accel = clamp(1 - state.difficulty * 0.05, 0.55, 1);
-    const jitter = randRange(rng, -450, 650);
-    state.nextSpawnAtMs = now + baseEveryMs * accel + jitter;
+    const coveredPickups = state.route.contractColors.reduce((sum, id) => sum + state.route.pickupsByColor[id].length, 0);
+    state.nextSpawnAtMs = now + spawnIntervalMs(coveredPickups, state.difficulty, randRange(rng, -450, 650));
   }
 
   function updateDifficulty() {
@@ -1565,7 +1563,7 @@ import {
     state.draw.points.push({ x: station.x, y: station.y });
     pingStation(station);
     recomputeRouteInfo();
-    setHint(`${stationLabel(index)} added. Choose another station, or close the loop after three stops.`);
+    setHint(`${stationLabel(index)} added. Choose another station, or close the loop. More stations on the loop bring more orders.`);
   }
 
   function undoPoint() {
@@ -1981,6 +1979,7 @@ import {
     draw();
   }
 
+  // test-hooks:start (removed from the production bundle by scripts/build-site.mjs)
   window.render_game_to_text = () => {
     const snapshotNowMs = nowMs();
     const routePoints = state.loop ? state.loop.points : state.draw.points;
@@ -2074,6 +2073,7 @@ import {
     if (mode === "run" || mode === "splice") simulationClock.advance(durationMs);
     renderFrame();
   };
+  // test-hooks:end
 
   function syncLiveTime(frameAtMs = performance.now()) {
     const elapsedMs = Math.max(0, frameAtMs - lastFrameAtMs);
