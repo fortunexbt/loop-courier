@@ -1058,19 +1058,17 @@ import {
     }
   }
 
-  function drawBackdrop() {
-    const w = canvas.width;
-    const h = canvas.height;
-    const wash = ctx.createLinearGradient(0, 0, w, h);
+  function paintBackdrop(g, w, h) {
+    const wash = g.createLinearGradient(0, 0, w, h);
     wash.addColorStop(0, "#111f2b");
     wash.addColorStop(0.52, "#101a24");
     wash.addColorStop(1, "#14222a");
-    ctx.fillStyle = wash;
-    ctx.fillRect(0, 0, w, h);
+    g.fillStyle = wash;
+    g.fillRect(0, 0, w, h);
 
     // Quiet city blocks and arterial lines make the route read like a night transit map.
-    ctx.save();
-    ctx.fillStyle = "rgba(183, 211, 230, 0.025)";
+    g.save();
+    g.fillStyle = "rgba(183, 211, 230, 0.025)";
     const blocks = [
       [42, 44, 164, 100],
       [242, 38, 210, 78],
@@ -1085,53 +1083,65 @@ import {
       [516, 408, 120, 110],
       [714, 392, 204, 140],
     ];
-    for (const [x, y, bw, bh] of blocks) ctx.fillRect(x, y, bw, bh);
+    for (const [x, y, bw, bh] of blocks) g.fillRect(x, y, bw, bh);
 
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(178, 203, 222, 0.035)";
-    ctx.lineWidth = 18;
-    ctx.beginPath();
-    ctx.moveTo(-20, 410);
-    ctx.bezierCurveTo(210, 330, 430, 410, 985, 250);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(17, 138, 178, 0.055)";
-    ctx.lineWidth = 46;
-    ctx.beginPath();
-    ctx.moveTo(660, -30);
-    ctx.bezierCurveTo(620, 135, 720, 270, 672, 630);
-    ctx.stroke();
-    ctx.font = "600 10px ui-monospace, monospace";
-    ctx.fillStyle = "rgba(183, 211, 230, 0.3)";
-    ctx.fillText("NORTH QUARTER", 42, 30);
-    ctx.fillText("RIVERSIDE", 736, 376);
-    ctx.fillText("OLD TOWN", 38, 574);
-    ctx.fillText("SOUTH TERMINAL", 508, 574);
-    ctx.fillStyle = "rgba(183, 211, 230, 0.55)";
-    ctx.fillText("N ↑", 909, 34);
-    ctx.restore();
+    g.lineCap = "round";
+    g.strokeStyle = "rgba(178, 203, 222, 0.035)";
+    g.lineWidth = 18;
+    g.beginPath();
+    g.moveTo(-20, 410);
+    g.bezierCurveTo(210, 330, 430, 410, 985, 250);
+    g.stroke();
+    g.strokeStyle = "rgba(17, 138, 178, 0.055)";
+    g.lineWidth = 46;
+    g.beginPath();
+    g.moveTo(660, -30);
+    g.bezierCurveTo(620, 135, 720, 270, 672, 630);
+    g.stroke();
+    g.font = "600 10px ui-monospace, monospace";
+    g.fillStyle = "rgba(183, 211, 230, 0.3)";
+    g.fillText("NORTH QUARTER", 42, 30);
+    g.fillText("RIVERSIDE", 736, 376);
+    g.fillText("OLD TOWN", 38, 574);
+    g.fillText("SOUTH TERMINAL", 508, 574);
+    g.fillStyle = "rgba(183, 211, 230, 0.55)";
+    g.fillText("N ↑", 909, 34);
+    g.restore();
   }
 
-  function drawGrid() {
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(230, 238, 252, 0.045)";
+  function paintGrid(g, w, h) {
+    g.save();
+    g.globalAlpha = 1;
+    g.lineWidth = 1;
+    g.strokeStyle = "rgba(230, 238, 252, 0.045)";
     const step = 40;
     for (let x = step; x < w; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, h);
-      ctx.stroke();
+      g.beginPath();
+      g.moveTo(x + 0.5, 0);
+      g.lineTo(x + 0.5, h);
+      g.stroke();
     }
     for (let y = step; y < h; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(0, y + 0.5);
-      ctx.lineTo(w, y + 0.5);
-      ctx.stroke();
+      g.beginPath();
+      g.moveTo(0, y + 0.5);
+      g.lineTo(w, y + 0.5);
+      g.stroke();
     }
-    ctx.restore();
+    g.restore();
+  }
+
+  // The backdrop and grid never change, so paint them once and copy the bitmap each frame.
+  let backdrop = null;
+  function drawBackdrop() {
+    if (!backdrop) {
+      backdrop = document.createElement("canvas");
+      backdrop.width = canvas.width;
+      backdrop.height = canvas.height;
+      const g = backdrop.getContext("2d");
+      paintBackdrop(g, canvas.width, canvas.height);
+      paintGrid(g, canvas.width, canvas.height);
+    }
+    ctx.drawImage(backdrop, 0, 0);
   }
 
   function drawStations() {
@@ -1439,7 +1449,6 @@ import {
 
   function draw() {
     drawBackdrop();
-    drawGrid();
     drawHazards();
     drawLoop();
     drawStations();
