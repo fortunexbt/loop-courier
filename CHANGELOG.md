@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- First visit traces a sample loop on the map instead of opening the guide; Dispatch pulses once a loop is ready.
+- Station pings, a loop-close flash and short tones confirm each step of drawing.
+- Shift report can share the score with a link to the same city.
+- Deploy to Vercel with an Open Graph image, touch icon and 404 page.
 - Run live play and virtual replays through one fixed simulation clock; preserve pending time at pause and splice boundaries and verify identical unchanged-route outcomes across frame rates and stalls.
 - Move phase-specific controls and cargo destinations beside the map; keep personal bests and station labels readable on phones.
 - Reject splices that disconnect the final contract; support keyboard edge selection and touch cancellation.

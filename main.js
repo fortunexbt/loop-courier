@@ -1,4 +1,5 @@
 import { createSimulationClock } from "./simulation-clock.js";
+import { MISS_PENALTY, deliveryPoints, spawnIntervalMs } from "./economy.js";
 import { dailySeed, readRecords, saveResult, bestForSeed, rankForResult } from "./progression.js";
 import {
   buildLoop,
@@ -171,12 +172,17 @@ import {
   let soundEnabled = false;
   let audioContext = null;
   let tutorialPausedRun = false;
+  let coachActive = false;
+  let coachPath = null;
+  let loopClosedAtMs = -Infinity;
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const coarsePointer = window.matchMedia("(pointer: coarse)");
   const events = [];
   const effects = [];
   const ui = Object.fromEntries([
     "btnDaily", "bestScore", "seedBadge", "phaseLabel", "routeStatus", "routeLength", "routeCoverage",
     "btnUndo", "btnCloseLoop", "btnSuggest", "stationPicker", "cargoStatus", "dispatchFeed", "btnSound",
-    "statDelivered", "statMissed",
+    "statDelivered", "statMissed", "btnShareResult", "shareStatus",
   ].map((id) => [id, document.getElementById(id)]));
 
   const contractElements = Object.fromEntries(COLORS.map((color) => [color.id, document.getElementById(`contract-${color.id}`)]));
@@ -187,7 +193,7 @@ import {
 
   function phaseText() {
     switch (mode) {
-      case "draw": return state.loop ? "READY TO DISPATCH" : "PLAN YOUR ROUTE";
+      case "draw": return state.loop ? "READY TO DISPATCH" : "DRAW YOUR ROUTE";
       case "over": return "SHIFT COMPLETE";
       case "paused": return "DISPATCH PAUSED";
       case "splice": return "REWIRE THE ROUTE";
@@ -197,8 +203,8 @@ import {
 
   function routeStatusText() {
     if (state.loop) return state.route.hasContract ? "Your loop is ready" : "Connect a matching pair";
-    if (state.draw.points.length) return `${state.draw.points.length} stops drawn · close your loop`;
-    return "Every delivery starts with a line.";
+    if (state.draw.points.length) return `${state.draw.points.length} stops drawn · finish where you started`;
+    return "Drag a loop through a circle and the square of the same color.";
   }
 
   function playTone(kind) {
@@ -207,9 +213,16 @@ import {
     const gain = audioContext.createGain();
     const time = audioContext.currentTime;
     oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(kind === "delivery" ? 660 : kind === "pickup" ? 440 : 180, time);
-    oscillator.frequency.exponentialRampToValueAtTime(kind === "delivery" ? 990 : 220, time + 0.12);
-    gain.gain.setValueAtTime(0.055, time);
+    const [from, to, volume] = {
+      delivery: [660, 990, 0.055],
+      pickup: [440, 220, 0.055],
+      station: [880, 1180, 0.03],
+      loop: [520, 1040, 0.05],
+      miss: [180, 220, 0.055],
+    }[kind];
+    oscillator.frequency.setValueAtTime(from, time);
+    oscillator.frequency.exponentialRampToValueAtTime(to, time + 0.12);
+    gain.gain.setValueAtTime(volume, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
     oscillator.connect(gain);
     gain.connect(audioContext.destination);
@@ -268,15 +281,17 @@ import {
   let lastAccessibleKey = "";
   let focusBeforeOverlay = null;
 
+  const DRAW_HINT = "Finish where you started to close the loop. You can also tap stations one at a time, or use Starter route.";
+
   const TUTORIAL_STEPS = [
     {
       title: "Connect the network",
-      body: "Circles are pickups; squares are dropoffs. Connect a same-color pair in a loop of at least three points, or try Starter route. Undo reopens a loop. On the map, arrows select stations, Space adds one, and C closes the route.",
+      body: "Circles are pickups, squares are dropoffs. Drag a loop that passes through a circle and the square of the same color, and finish where you started. Starter route draws one for you, and Undo reopens a closed loop. Keyboard: arrows pick a station, Space adds it, C closes the loop.",
       target: canvas,
     },
     {
       title: "Dispatch the courier",
-      body: "Dispatch unlocks when a color contract is connected. New orders use connected stations only. More connected colors earn bigger delivery bonuses. Your courier carries up to three packages.",
+      body: "Dispatch unlocks when a color contract is connected. New orders use connected stations only. A loop that covers more stations draws more orders, and each extra color pays more per delivery. Your courier carries up to three packages.",
       target: btnStart,
     },
     {
@@ -332,6 +347,7 @@ import {
   };
 
   let pkgIdCounter = 1;
+  let lastResult = null;
 
   function minDist2ToLoop(loop, p) {
     let best = Infinity;
@@ -480,7 +496,7 @@ import {
     document.getElementById("app").dataset.mode = mode;
     updateButtons();
     if (mode === "draw") {
-      setHint("Draw a closed loop around pickups/dropoffs. Close by clicking near the first point.");
+      setHint(DRAW_HINT);
     } else if (mode === "run") {
       setHint("Deliver fast. Press S to splice (click 2 edges).");
     } else if (mode === "splice") {
@@ -507,6 +523,7 @@ import {
     const hasLoop = !!state.loop;
     const canStart = hasLoop && state.route.hasContract && mode === "draw";
     btnStart.disabled = !canStart;
+    btnStart.classList.toggle("nudge", canStart && coachActive);
     btnSplice.disabled = !hasLoop || state.loop.points.length < 4 || !["run", "splice"].includes(mode) || state.splicesLeft <= 0;
     setText(btnSplice, mode === "splice" ? "Cancel splice" : "Splice route");
     btnResetLoop.disabled = mode !== "draw" || (!hasLoop && !state.draw.points.length);
@@ -525,6 +542,7 @@ import {
     elSeed.value = seedStr;
     state.rng = createRng(seedStr);
     state.stations = generateStations(state.rng);
+    coachPath = buildCoachPath();
     state.hazards = [];
     state.nextMutationAtMs = Infinity;
     ui.seedBadge.textContent = seedStr === dailySeed() ? "DAILY CITY · UTC" : "CUSTOM CITY";
@@ -613,6 +631,10 @@ import {
 
   function startRound() {
     hideTutorial({ restoreFocus: false });
+    if (coachActive) {
+      coachActive = false;
+      setTutorialDone();
+    }
     const t = nowMs();
     state.roundDurationS = 120;
     state.roundEndAtMs = t + state.roundDurationS * 1000;
@@ -653,7 +675,38 @@ import {
     note.className = "result-note";
     note.textContent = `${rank.detail} City ${state.seed}. ${saved.persisted ? "Best saved on this device." : "Storage unavailable; this result is session only."} Retry starts a fresh attempt on your final route.`;
     modalBody.replaceChildren(score, title, grid, note);
+    lastResult = { ...result, rank: rank.label };
+    setText(ui.shareStatus, "");
     logEvent(`Shift complete · ${result.score} points`, "delivery");
+  }
+
+  function cityUrl() {
+    const url = new URL(window.location.href);
+    url.search = "";
+    url.hash = "";
+    url.searchParams.set("seed", state.seed);
+    return url.toString();
+  }
+
+  async function shareResult() {
+    const city = state.seed === dailySeed() ? `today's daily city (${state.seed})` : `city ${state.seed}`;
+    const text = `Loop Courier, ${city}: ${lastResult.score} pts, ${lastResult.delivered} delivered, best combo ${lastResult.bestCombo}. Same map for you:`;
+    const url = cityUrl();
+    if (navigator.share && coarsePointer.matches) {
+      try {
+        await navigator.share({ title: "Loop Courier", text, url });
+        setText(ui.shareStatus, "Shared.");
+        return;
+      } catch (error) {
+        if (error.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      setText(ui.shareStatus, "Result and city link copied.");
+    } catch {
+      setText(ui.shareStatus, `Clipboard blocked. City link: ${url}`);
+    }
   }
 
   function showModal(title, body) {
@@ -668,6 +721,40 @@ import {
     modal.classList.add("hidden");
     if (restoreFocus && focusBeforeOverlay instanceof HTMLElement) focusBeforeOverlay.focus({ preventScroll: true });
     focusBeforeOverlay = null;
+  }
+
+  // First-run demo: a loop through a same-color pickup and dropoff, traced on the map.
+  // Prefer a pair that is a comfortable drag apart and sits near the middle of the city.
+  function buildCoachPath() {
+    const center = { x: canvas.width / 2, y: canvas.height / 2 };
+    let best = null;
+    for (const pickup of state.stations) {
+      if (pickup.kind !== "pickup") continue;
+      for (const drop of state.stations) {
+        if (drop.kind !== "drop" || drop.colorId !== pickup.colorId) continue;
+        const length = dist(pickup, drop);
+        const cost = Math.abs(length - 240) + 0.5 * dist(center, { x: (pickup.x + drop.x) / 2, y: (pickup.y + drop.y) / 2 });
+        if (!best || cost < best.cost) best = { pickup, drop, length, cost };
+      }
+    }
+    const { pickup, drop, length } = best;
+    const mid = { x: (pickup.x + drop.x) / 2, y: (pickup.y + drop.y) / 2 };
+    const normal = { x: -(drop.y - pickup.y) / length, y: (drop.x - pickup.x) / length };
+    const offset = clamp(length * 0.6, 70, 150);
+    const pad = 40;
+    let corner = { x: mid.x + normal.x * offset, y: mid.y + normal.y * offset };
+    if (!insideCanvas({ x: corner.x - pad, y: corner.y - pad }, canvas.width - 2 * pad, canvas.height - 2 * pad)) {
+      corner = { x: mid.x - normal.x * offset, y: mid.y - normal.y * offset };
+    }
+    corner = { x: clamp(corner.x, pad, canvas.width - pad), y: clamp(corner.y, pad, canvas.height - pad) };
+    const points = [pickup, drop, corner, pickup].map((point) => ({ x: point.x, y: point.y }));
+    const lengths = [0];
+    for (let i = 1; i < points.length; i++) lengths.push(lengths[i - 1] + dist(points[i - 1], points[i]));
+    return { points, lengths, total: lengths.at(-1), colorId: pickup.colorId };
+  }
+
+  function coachVisible() {
+    return coachActive && mode === "draw" && !state.loop && state.draw.points.length === 0;
   }
 
   function generateStations(rng) {
@@ -806,14 +893,14 @@ import {
         cargoDirty = true;
         pkg.carried = false;
         state.cargoIds = state.cargoIds.filter((id) => id !== pkgId);
-        const base = 30 + 10 * Math.max(0, state.route.contractColors.length - 1);
         state.combo = state.combo + 1;
         state.bestCombo = Math.max(state.bestCombo, state.combo);
-        const mult = 1 + Math.min(12, state.combo) * 0.12;
-        state.score += base * mult;
+        const points = deliveryPoints(state.route.contractColors.length, state.combo);
+        state.score += points;
         state.delivered += 1;
-        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `+${Math.round(base * mult)}`, born: nowMs(), color: "#c7f36b" });
-        logEvent(`${getColor(pkg.colorId).label} delivered · +${Math.round(base * mult)} · combo ${state.combo}`, "delivery");
+        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `+${Math.round(points)}`, born: nowMs(), color: "#c7f36b" });
+        if (!reducedMotion.matches) elScore.animate([{ transform: "scale(1.22)" }, { transform: "scale(1)" }], { duration: 320, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+        logEvent(`${getColor(pkg.colorId).label} delivered · +${Math.round(points)} · combo ${state.combo}`, "delivery");
         playTone("delivery");
       }
     }
@@ -848,9 +935,9 @@ import {
         state.cargoIds = state.cargoIds.filter((id) => id !== pkg.id);
         state.missed += 1;
         state.combo = 0;
-        state.score = Math.max(0, state.score - 18);
-        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: "−18", born: nowMs(), color: "#fb8299" });
-        logEvent(`${getColor(pkg.colorId).label} deadline missed · −18`, "warning");
+        state.score = Math.max(0, state.score - MISS_PENALTY);
+        effects.push({ x: pkg.drop.x, y: pkg.drop.y, text: `−${MISS_PENALTY}`, born: nowMs(), color: "#fb8299" });
+        logEvent(`${getColor(pkg.colorId).label} deadline missed · −${MISS_PENALTY}`, "warning");
         playTone("miss");
         // Missed deadlines add a toll bubble near the miss location to push reroutes.
         state.hazards.push({
@@ -876,10 +963,8 @@ import {
     if (now < state.nextSpawnAtMs) return;
     spawnPackage();
     const rng = state.rng;
-    const baseEveryMs = 2600;
-    const accel = clamp(1 - state.difficulty * 0.05, 0.55, 1);
-    const jitter = randRange(rng, -450, 650);
-    state.nextSpawnAtMs = now + baseEveryMs * accel + jitter;
+    const coveredPickups = state.route.contractColors.reduce((sum, id) => sum + state.route.pickupsByColor[id].length, 0);
+    state.nextSpawnAtMs = now + spawnIntervalMs(coveredPickups, state.difficulty, randRange(rng, -450, 650));
   }
 
   function updateDifficulty() {
@@ -971,19 +1056,17 @@ import {
     }
   }
 
-  function drawBackdrop() {
-    const w = canvas.width;
-    const h = canvas.height;
-    const wash = ctx.createLinearGradient(0, 0, w, h);
+  function paintBackdrop(g, w, h) {
+    const wash = g.createLinearGradient(0, 0, w, h);
     wash.addColorStop(0, "#111f2b");
     wash.addColorStop(0.52, "#101a24");
     wash.addColorStop(1, "#14222a");
-    ctx.fillStyle = wash;
-    ctx.fillRect(0, 0, w, h);
+    g.fillStyle = wash;
+    g.fillRect(0, 0, w, h);
 
     // Quiet city blocks and arterial lines make the route read like a night transit map.
-    ctx.save();
-    ctx.fillStyle = "rgba(183, 211, 230, 0.025)";
+    g.save();
+    g.fillStyle = "rgba(183, 211, 230, 0.025)";
     const blocks = [
       [42, 44, 164, 100],
       [242, 38, 210, 78],
@@ -998,53 +1081,65 @@ import {
       [516, 408, 120, 110],
       [714, 392, 204, 140],
     ];
-    for (const [x, y, bw, bh] of blocks) ctx.fillRect(x, y, bw, bh);
+    for (const [x, y, bw, bh] of blocks) g.fillRect(x, y, bw, bh);
 
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(178, 203, 222, 0.035)";
-    ctx.lineWidth = 18;
-    ctx.beginPath();
-    ctx.moveTo(-20, 410);
-    ctx.bezierCurveTo(210, 330, 430, 410, 985, 250);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(17, 138, 178, 0.055)";
-    ctx.lineWidth = 46;
-    ctx.beginPath();
-    ctx.moveTo(660, -30);
-    ctx.bezierCurveTo(620, 135, 720, 270, 672, 630);
-    ctx.stroke();
-    ctx.font = "600 10px ui-monospace, monospace";
-    ctx.fillStyle = "rgba(183, 211, 230, 0.3)";
-    ctx.fillText("NORTH QUARTER", 42, 30);
-    ctx.fillText("RIVERSIDE", 736, 376);
-    ctx.fillText("OLD TOWN", 38, 574);
-    ctx.fillText("SOUTH TERMINAL", 508, 574);
-    ctx.fillStyle = "rgba(183, 211, 230, 0.55)";
-    ctx.fillText("N ↑", 909, 34);
-    ctx.restore();
+    g.lineCap = "round";
+    g.strokeStyle = "rgba(178, 203, 222, 0.035)";
+    g.lineWidth = 18;
+    g.beginPath();
+    g.moveTo(-20, 410);
+    g.bezierCurveTo(210, 330, 430, 410, 985, 250);
+    g.stroke();
+    g.strokeStyle = "rgba(17, 138, 178, 0.055)";
+    g.lineWidth = 46;
+    g.beginPath();
+    g.moveTo(660, -30);
+    g.bezierCurveTo(620, 135, 720, 270, 672, 630);
+    g.stroke();
+    g.font = "600 10px ui-monospace, monospace";
+    g.fillStyle = "rgba(183, 211, 230, 0.3)";
+    g.fillText("NORTH QUARTER", 42, 30);
+    g.fillText("RIVERSIDE", 736, 376);
+    g.fillText("OLD TOWN", 38, 574);
+    g.fillText("SOUTH TERMINAL", 508, 574);
+    g.fillStyle = "rgba(183, 211, 230, 0.55)";
+    g.fillText("N ↑", 909, 34);
+    g.restore();
   }
 
-  function drawGrid() {
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(230, 238, 252, 0.045)";
+  function paintGrid(g, w, h) {
+    g.save();
+    g.globalAlpha = 1;
+    g.lineWidth = 1;
+    g.strokeStyle = "rgba(230, 238, 252, 0.045)";
     const step = 40;
     for (let x = step; x < w; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, h);
-      ctx.stroke();
+      g.beginPath();
+      g.moveTo(x + 0.5, 0);
+      g.lineTo(x + 0.5, h);
+      g.stroke();
     }
     for (let y = step; y < h; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(0, y + 0.5);
-      ctx.lineTo(w, y + 0.5);
-      ctx.stroke();
+      g.beginPath();
+      g.moveTo(0, y + 0.5);
+      g.lineTo(w, y + 0.5);
+      g.stroke();
     }
-    ctx.restore();
+    g.restore();
+  }
+
+  // The backdrop and grid never change, so paint them once and copy the bitmap each frame.
+  let backdrop = null;
+  function drawBackdrop() {
+    if (!backdrop) {
+      backdrop = document.createElement("canvas");
+      backdrop.width = canvas.width;
+      backdrop.height = canvas.height;
+      const g = backdrop.getContext("2d");
+      paintBackdrop(g, canvas.width, canvas.height);
+      paintGrid(g, canvas.width, canvas.height);
+    }
+    ctx.drawImage(backdrop, 0, 0);
   }
 
   function drawStations() {
@@ -1166,9 +1261,11 @@ import {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // Glow underlay
-    ctx.strokeStyle = "rgba(199, 243, 107, 0.10)";
-    ctx.lineWidth = 10;
+    // Glow underlay, brightened for a moment when the loop closes.
+    const lineScale = Math.max(1, canvasScale * 0.7);
+    const flash = closed ? clamp(1 - (performance.now() - loopClosedAtMs) / 650, 0, 1) : 0;
+    ctx.strokeStyle = `rgba(199, 243, 107, ${0.1 + 0.4 * flash})`;
+    ctx.lineWidth = (10 + 14 * flash) * lineScale;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
@@ -1177,7 +1274,7 @@ import {
 
     // Main line
     ctx.strokeStyle = "rgba(199, 243, 107, 0.9)";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * lineScale;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
@@ -1295,9 +1392,61 @@ import {
     ctx.restore();
   }
 
+  function coachPointAt(distance) {
+    const { points, lengths } = coachPath;
+    let i = 1;
+    while (i < lengths.length - 1 && lengths[i] < distance) i++;
+    const k = clamp((distance - lengths[i - 1]) / Math.max(1, lengths[i] - lengths[i - 1]), 0, 1);
+    return { x: lerp(points[i - 1].x, points[i].x, k), y: lerp(points[i - 1].y, points[i].y, k), segment: i };
+  }
+
+  function drawCoach() {
+    if (!coachVisible()) return;
+    const { points, total, colorId } = coachPath;
+    const traceMs = 2400;
+    const cycleMs = 3800;
+    const elapsed = reducedMotion.matches ? traceMs : performance.now() % cycleMs;
+    const t = clamp(elapsed / traceMs, 0, 1);
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+    const fade = reducedMotion.matches ? 1 : clamp((cycleMs - 250 - elapsed) / 450, 0, 1);
+    const head = coachPointAt(eased * total);
+    const scale = Math.max(1, canvasScale * 0.8);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(215, 245, 142, 0.95)";
+    ctx.lineWidth = 4 * scale;
+    ctx.setLineDash([12 * scale, 9 * scale]);
+    ctx.lineDashOffset = reducedMotion.matches ? 0 : -performance.now() / 40;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < head.segment; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.lineTo(head.x, head.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Highlight the pair the demo connects.
+    ctx.strokeStyle = getColor(colorId).stroke;
+    ctx.lineWidth = 1.5 * scale;
+    for (const point of points.slice(0, 2)) {
+      ctx.beginPath(); ctx.arc(point.x, point.y, 22 * scale, 0, TAU); ctx.stroke();
+    }
+    if (!reducedMotion.matches && t < 1) {
+      // A fingertip pressing the route into the map.
+      ctx.fillStyle = "rgba(240, 242, 233, 0.22)";
+      ctx.strokeStyle = "rgba(240, 242, 233, 0.85)";
+      ctx.lineWidth = 2 * scale;
+      ctx.beginPath(); ctx.arc(head.x, head.y, 15 * scale, 0, TAU); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(215, 245, 142, 0.9)";
+      ctx.lineWidth = 2 * scale;
+      ctx.beginPath(); ctx.arc(points[0].x, points[0].y, 15 * scale, 0, TAU); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function draw() {
     drawBackdrop();
-    drawGrid();
     drawHazards();
     drawLoop();
     drawStations();
@@ -1306,6 +1455,21 @@ import {
     drawRoundBar();
     for (let i = effects.length - 1; i >= 0; i--) {
       const effect = effects[i];
+      if (effect.ring) {
+        // Station pings are interface feedback, so they age in wall time even while planning.
+        const ringAge = performance.now() - effect.born;
+        if (ringAge > 480) { effects.splice(i, 1); continue; }
+        const k = ringAge / 480;
+        ctx.save();
+        ctx.globalAlpha = (1 - k) * 0.9;
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 2 * Math.max(1, canvasScale * 0.8);
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, (12 + (reducedMotion.matches ? 6 : 22 * (1 - (1 - k) ** 3))) * Math.max(1, canvasScale * 0.85), 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
       const age = nowMs() - effect.born;
       if (age > 1300) { effects.splice(i, 1); continue; }
       ctx.save();
@@ -1329,36 +1493,12 @@ import {
       ctx.restore();
     }
 
-    if (!state.loop && mode === "draw") {
-      // Light guidance: show nearest pickup -> drop relationship.
-      ctx.save();
-      ctx.globalAlpha = 0.25;
-      ctx.strokeStyle = "rgba(230, 238, 252, 0.22)";
-      ctx.lineWidth = 1.5;
-      for (const c of COLORS) {
-        const pk = state.stations.find((s) => s.kind === "pickup" && s.colorId === c.id);
-        const dp = state.stations.find((s) => s.kind === "drop" && s.colorId === c.id);
-        if (!pk || !dp) continue;
-        ctx.beginPath();
-        ctx.moveTo(pk.x, pk.y);
-        ctx.lineTo(dp.x, dp.y);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
+    drawCoach();
 
     if (mode === "over") {
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.35)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "rgba(230, 238, 252, 0.9)";
-      ctx.font = "900 22px ui-sans-serif, system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("Round Over", canvas.width / 2, canvas.height / 2 - 10);
-      ctx.font = "600 14px ui-sans-serif, system-ui";
-      ctx.fillStyle = "rgba(230, 238, 252, 0.7)";
-      ctx.fillText("Use the modal to restart.", canvas.width / 2, canvas.height / 2 + 18);
       ctx.restore();
     }
   }
@@ -1380,7 +1520,12 @@ import {
         nearest = station;
       }
     }
-    return nearest ? { x: nearest.x, y: nearest.y } : point;
+    return nearest ? { x: nearest.x, y: nearest.y, station: nearest } : point;
+  }
+
+  function pingStation(station) {
+    effects.push({ ring: true, x: station.x, y: station.y, born: performance.now(), color: getColor(station.colorId).fill });
+    playTone("station");
   }
 
   function stationLabel(index) {
@@ -1416,8 +1561,9 @@ import {
     }
     if (state.draw.points.length && dist(station, state.draw.points.at(-1)) < 1) return;
     state.draw.points.push({ x: station.x, y: station.y });
+    pingStation(station);
     recomputeRouteInfo();
-    setHint(`${stationLabel(index)} added. Choose another station, or close the loop after three stops.`);
+    setHint(`${stationLabel(index)} added. Choose another station, or close the loop. More stations on the loop bring more orders.`);
   }
 
   function undoPoint() {
@@ -1465,6 +1611,8 @@ import {
     state.bot.segPos = 0;
     state.bot.pos = { ...state.loop.points[0] };
     recomputeRouteInfo();
+    loopClosedAtMs = performance.now();
+    if (state.route.hasContract) playTone("loop");
     setMode("draw");
     setHint(state.route.hasContract ? "Loop ready. Dispatch when you are ready; planning has no time limit." : "This loop needs a same-color pickup and dropoff. Undo to edit it.");
     return true;
@@ -1543,6 +1691,7 @@ import {
       const p = snapToStation(rawPoint, e.pointerType);
       state.draw.dragging = true;
       state.draw.points.push({ x: p.x, y: p.y });
+      if (p.station) pingStation(p.station);
       recomputeRouteInfo();
       return;
     }
@@ -1557,17 +1706,22 @@ import {
   canvas.addEventListener("pointermove", (e) => {
     if (mode !== "draw") return;
     if (state.loop) return;
-    const raw = canvasToWorld(canvas, e.clientX, e.clientY);
-    const bounded = { x: clamp(raw.x, 0, canvas.width), y: clamp(raw.y, 0, canvas.height) };
-    const p = snapToStation(bounded, e.pointerType);
-    state.draw.cursor = p;
-    if (!state.draw.dragging) return;
-    const pts = state.draw.points;
-    if (pts.length === 0) return;
-    const last = pts[pts.length - 1];
-    if (dist(p, last) < 10) return;
-    pts.push({ x: p.x, y: p.y });
-    recomputeRouteInfo();
+    // Fast finger strokes deliver several samples per frame; use them all so the line follows the gesture.
+    const samples = state.draw.dragging && e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    let added = false;
+    for (const sample of samples.length ? samples : [e]) {
+      const raw = canvasToWorld(canvas, sample.clientX, sample.clientY);
+      const bounded = { x: clamp(raw.x, 0, canvas.width), y: clamp(raw.y, 0, canvas.height) };
+      const p = snapToStation(bounded, e.pointerType);
+      state.draw.cursor = p;
+      if (!state.draw.dragging) continue;
+      const pts = state.draw.points;
+      if (pts.length === 0 || dist(p, pts.at(-1)) < 10) continue;
+      pts.push({ x: p.x, y: p.y });
+      if (p.station) pingStation(p.station);
+      added = true;
+    }
+    if (added) recomputeRouteInfo();
   });
 
   canvas.addEventListener("pointerup", (e) => {
@@ -1715,10 +1869,8 @@ import {
 
   btnCopyLink.addEventListener("click", async () => {
     try {
-      const url = new URL(window.location.href);
-      url.searchParams.set("seed", state.seed);
-      await navigator.clipboard.writeText(url.toString());
-      setHint("Share link copied to clipboard.");
+      await navigator.clipboard.writeText(cityUrl());
+      setHint("City link copied. Anyone who opens it gets this exact map.");
     } catch {
       setHint("Clipboard blocked. Copy the seed manually.");
     }
@@ -1793,6 +1945,9 @@ import {
   });
 
   btnModalSecondary.addEventListener("click", () => changeCity(randomSeed(Math.random)));
+  ui.btnShareResult.addEventListener("click", () => {
+    void shareResult();
+  });
 
   // Keep modal keyboard focus within the result actions.
   modal.addEventListener("keydown", (event) => {
@@ -1824,6 +1979,7 @@ import {
     draw();
   }
 
+  // test-hooks:start (removed from the production bundle by scripts/build-site.mjs)
   window.render_game_to_text = () => {
     const snapshotNowMs = nowMs();
     const routePoints = state.loop ? state.loop.points : state.draw.points;
@@ -1891,6 +2047,7 @@ import {
           hazard.kind === "jam" ? Math.max(0, Math.round(hazard.ttlMs - (snapshotNowMs - hazard.bornAtMs))) : null,
       })),
       spliceSelection: [state.splice.edgeA, null],
+      coach: { visible: coachVisible() },
       focusedEdge,
       tutorial: {
         visible: !tutorialDock.classList.contains("hidden"),
@@ -1916,6 +2073,7 @@ import {
     if (mode === "run" || mode === "splice") simulationClock.advance(durationMs);
     renderFrame();
   };
+  // test-hooks:end
 
   function syncLiveTime(frameAtMs = performance.now()) {
     const elapsedMs = Math.max(0, frameAtMs - lastFrameAtMs);
@@ -1940,9 +2098,9 @@ import {
     btnTutorial.setAttribute("aria-expanded", "false");
     btnFullscreen.disabled = !document.fullscreenEnabled;
     logEvent("City ready. Connect matching stations.");
-    setHint("Draw a closed loop around pickups/dropoffs. Close by clicking near the first point.");
+    coachActive = !hasCompletedTutorial();
+    updateButtons();
     requestAnimationFrame(tick);
-    if (!hasCompletedTutorial()) showTutorial(0);
   }
 
   boot();

@@ -28,10 +28,10 @@ svg { display: block; }
 .eyebrow, .k { color: var(--muted); font-size: 10px; font-weight: 600; line-height: 1.4; letter-spacing: .1em; text-transform: uppercase; }
 #app { width: min(100%, 1536px); min-height: 100svh; margin: 0 auto; padding: 30px 44px 20px; }
 #app:fullscreen { width: 100%; max-width: none; height: 100%; min-height: 100%; overflow: auto; background: var(--bg); }
-.masthead { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding-bottom: 25px; }
+.masthead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px 32px; padding-bottom: 25px; }
+.tagline { max-width: 46ch; padding-left: 28px; border-left: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.45; text-wrap: pretty; }
 .brand { display: flex; align-items: center; gap: 13px; }
 .brand-mark { width: 43px; height: 43px; color: var(--accent); }
-.brand .eyebrow { margin-bottom: 4px; font-size: 10px; letter-spacing: .1em; }
 h1 { font-size: clamp(25px, 2.1vw, 32px); font-weight: 720; line-height: 1; letter-spacing: -.065em; }
 .brand-period { color: var(--accent); }
 .city-actions { display: flex; align-items: center; gap: 8px; }
@@ -163,6 +163,9 @@ h3 { font-size: 12px; font-weight: 600; }
 .tActions .text-button { color: var(--muted); }
 #btnTutNext { min-width: 82px; border-color: #6b8050; color: var(--accent); background: transparent; }
 .pulse { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* First run: once a loop is ready, draw the eye to Dispatch. */
+.dispatch-button.nudge { animation: nudge 1.6s cubic-bezier(0.23, 1, 0.32, 1) infinite; }
+@keyframes nudge { 0% { box-shadow: 0 0 0 0 #d7f58e8c; } 70%, 100% { box-shadow: 0 0 0 12px #d7f58e00; } }
 #modal { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; overflow-y: auto; background: #070e14d9; backdrop-filter: blur(8px); }
 .card { width: min(100%, 480px); margin: auto; padding: 34px; border: 1px solid #4d6067; border-radius: 8px; background: var(--surface); box-shadow: 0 24px 100px #0006; }
 .card > .eyebrow { color: var(--accent); margin-bottom: 13px; }
@@ -176,6 +179,10 @@ h3 { font-size: 12px; font-weight: 600; }
 .result-grid span, .result-grid dt { color: var(--muted); font-size: 10px; }
 .result-grid strong, .result-grid dd { color: var(--ink); font-size: 20px; line-height: 1.3; font-weight: 500; margin: 0; }
 .result-note { color: var(--muted); font-size: 12px; padding-top: 16px; line-height: 1.65; }
+.share-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 18px; }
+.share-button { min-height: 44px; border-color: #6b8050; color: var(--accent); background: transparent; }
+.share-status { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.share-status:empty { display: none; }
 .mActions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 25px; }
 .mActions button { flex: 1 1 110px; min-height: 44px; }
 /* Keep the complete map visible on laptop screens while the desk can scroll. */
@@ -240,7 +247,8 @@ h3 { font-size: 12px; font-weight: 600; }
   .masthead { align-items: flex-start; gap: 13px; padding-bottom: 14px; }
   .brand { gap: 7px; }
   .brand-mark { width: 31px; height: 34px; }
-  .brand .eyebrow { display: none; }
+  .masthead { grid-template-columns: minmax(0, 1fr) auto; }
+  .tagline { grid-column: 1 / -1; grid-row: 2; max-width: 52ch; padding-left: 0; border-left: 0; font-size: 13px; }
   h1 { font-size: 24px; letter-spacing: -.055em; }
   .city-actions { display: grid; grid-template-columns: auto auto; gap: 5px; }
   .city-actions button { min-height: 44px; padding: 8px; gap: 5px; font-size: 11px; }
@@ -298,8 +306,13 @@ h3 { font-size: 12px; font-weight: 600; }
   .mActions button { flex-basis: calc(50% - 5px); }
   .mActions .primary-button { flex-basis: 100%; }
 }
+@media (max-width: 560px) {
+  #app { padding-inline: 16px; }
+  .map-frame { margin-inline: -16px; border-inline: 0; border-radius: 0; }
+}
 @media (max-width: 370px) {
   #app { padding-left: 12px; padding-right: 12px; }
+  .map-frame { margin-inline: -12px; }
   .brand-mark { display: none; }
   h1 { font-size: 23px; }
   .city-actions button { font-size: 11px; padding: 7px; }
@@ -315,6 +328,7 @@ h3 { font-size: 12px; font-weight: 600; }
   .seed-badge { max-width: 18ch; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .dispatch-button.nudge { animation: none; box-shadow: 0 0 0 3px #d7f58e8c; }
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 

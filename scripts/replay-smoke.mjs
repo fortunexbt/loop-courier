@@ -28,7 +28,6 @@ try {
   async function run(seed, profile) {
     await page.goto(`${baseUrl}/?seed=${seed}`);
     return page.evaluate(({ profile }) => {
-      document.getElementById("btnTutSkip").click();
       document.getElementById("btnSuggest").click();
       document.getElementById("btnStart").click();
       if (profile === "virtual") window.advanceTime(121000);
@@ -58,7 +57,6 @@ try {
   const boundaries = await page.evaluate(() => {
     const click = (id) => document.getElementById(id).click();
     const state = () => JSON.parse(window.render_game_to_text());
-    click("btnTutSkip");
     click("btnSuggest");
     click("btnStart");
     window.driveFrames([1000]);

@@ -42,7 +42,7 @@ CI runs the same four suites in Chromium and WebKit:
 | `scripts/replay-smoke.mjs` | Complete seeded runs at 30 fps, 144 fps, with stalls, and through virtual time; pause/splice boundaries and guide activation at shift end |
 | `scripts/interaction-smoke.mjs` | Guarded and keyboard splicing, guide focus/pause, replanning, cargo deadlines, and phone controls beside the map |
 
-The browser suites write inspection artifacts under `output/` and refresh `assets/loop-courier-showcase.png`. The replay suite skips canvas raster calls to keep timing checks fast; the other suites render the actual canvas.
+The browser suites write inspection artifacts under `output/`. The replay suite skips canvas raster calls to keep timing checks fast; the other suites render the actual canvas.
 
 For custom scenarios, the page exposes:
 
@@ -61,7 +61,7 @@ For custom scenarios, the page exposes:
 | `progression.js` | UTC daily cities and validated local best scores |
 | `tests/` | Unit tests |
 | `scripts/` | Local server, build, and browser tests |
-| `assets/` | Favicon and gameplay capture |
+| `assets/` | Favicon, touch icon and Open Graph image |
 
 When changing route math, add a focused test in `tests/game-core.test.js`. When changing a control, update the in-game guide, README control table, text-state snapshot, and relevant browser test together.
 
@@ -74,6 +74,8 @@ npm run build
 Deploy the generated `site/` directory with any static host. Application URLs are relative, so the game also works under a project subpath.
 
 The included GitHub Pages workflow verifies and builds the site, then publishes `site/` on pushes to `main`. Set **GitHub Actions** as the Pages source in repository settings.
+
+Vercel builds the same `site/` directory (`vercel.json` sets the build command and output). The production demo is at https://loop-courier-game.vercel.app/. `404.html` uses root-relative links, so it is meant for the Vercel deployment.
 
 ## Good expansion points
 

@@ -6,7 +6,6 @@ const baseUrl = process.env.LOOP_COURIER_URL || "http://127.0.0.1:4189";
 const seededUrl = `${baseUrl}/?seed=METRO-7`;
 
 await mkdir("output", { recursive: true });
-await mkdir("assets", { recursive: true });
 
 function readState(page) {
   return page.evaluate(() => JSON.parse(window.render_game_to_text()));
@@ -50,8 +49,7 @@ try {
   await page.waitForFunction(() => typeof window.render_game_to_text === "function");
   console.log("desktop: loaded");
 
-  assert.equal((await readState(page)).tutorial.visible, true);
-  await page.locator("#btnTutSkip").click();
+  assert.equal((await readState(page)).tutorial.visible, false, "first load teaches with the coach demo, not a modal guide");
   await drawBlueContract(page);
   console.log("desktop: route ready");
   await page.keyboard.press("Enter");
@@ -100,7 +98,7 @@ try {
   console.log("desktop: tutorial and fullscreen verified");
 
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: "assets/loop-courier-showcase.png", fullPage: true });
+  await page.screenshot({ path: "output/dispatch-shift.png", fullPage: true });
   await page.locator("#game").screenshot({ path: "output/web-game-delivery.png" });
 
   await page.evaluate(() => window.advanceTime(110000));
@@ -150,7 +148,6 @@ try {
   await mobile.goto(seededUrl, { waitUntil: "networkidle" });
   await mobile.waitForFunction(() => typeof window.render_game_to_text === "function");
   console.log("mobile: loaded");
-  await mobile.locator("#btnTutSkip").click();
   const metrics = await mobile.evaluate(() => ({
     documentWidth: document.documentElement.scrollWidth,
     viewportWidth: document.documentElement.clientWidth,

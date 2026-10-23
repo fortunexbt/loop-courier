@@ -18,6 +18,7 @@ async function point(page, x, y) {
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   await page.goto(`${baseUrl}/?seed=METRO-7`);
+  await page.locator("#btnTutorial").click();
   const guideAction = await page.locator("#btnTutNext").boundingBox();
   assert.ok(guideAction.y >= 0 && guideAction.y + guideAction.height <= 720, "focused guide action must be on screen");
   await page.locator("#btnTutSkip").click();
