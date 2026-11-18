@@ -61,7 +61,7 @@ For custom scenarios, the page exposes:
 | `progression.js` | UTC daily cities and validated local best scores |
 | `tests/` | Unit tests |
 | `scripts/` | Local server, build, and browser tests |
-| `assets/` | Favicon, touch icon and Open Graph image |
+| `assets/` | Favicon, touch icon, Open Graph image and the self-hosted Overpass font |
 
 When changing route math, add a focused test in `tests/game-core.test.js`. When changing a control, update the in-game guide, README control table, text-state snapshot, and relevant browser test together.
 
