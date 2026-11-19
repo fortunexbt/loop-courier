@@ -18,7 +18,7 @@ try {
   assert.equal(planned.route.ready, true);
   assert.equal(planned.route.contractColors.length, 3);
   await page.locator("#btnStart").click();
-  await page.locator("#btnSound").focus();
+  await page.locator("#btnTutorial").focus();
   await page.keyboard.press("s");
   assert.equal((await state(page)).mode, "splice", "letter shortcuts still work from a focused button");
   await page.keyboard.press("Escape");
@@ -49,9 +49,11 @@ try {
   assert.deepEqual(retry.packages, first.packages, "retry must reproduce orders and deadlines");
   assert.deepEqual(retry.bot, first.bot, "retry must reproduce courier movement");
   assert.equal(retry.score, first.score);
+  await page.locator("#btnCity").click();
   await page.locator("#btnNewSeed").click();
   assert.equal((await state(page)).mode, "draw");
   assert.equal((await state(page)).route.closed, false);
+  await page.locator("#btnCity").click();
   await page.locator("#btnDaily").click();
   assert.equal((await state(page)).seed, new Date().toISOString().slice(0, 10));
   await page.locator("#btnSuggest").click();
@@ -102,13 +104,18 @@ try {
   await page.locator("#btnSuggest").click();
   for (const width of [320, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => window.advanceTime(0));
     const metrics = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth,
       viewport: document.documentElement.clientWidth,
       canvas: document.querySelector("#game").getBoundingClientRect().toJSON(),
+      corners: [window.worldToClient(0, 0), window.worldToClient(960, 600)],
     }));
     assert.ok(metrics.width <= metrics.viewport, `layout must fit at ${width}px`);
-    assert.ok(Math.abs(metrics.canvas.width / metrics.canvas.height - 1.6) < 0.01);
+    assert.equal(Math.round(metrics.canvas.width), metrics.viewport, `the map fills the width at ${width}px`);
+    for (const corner of metrics.corners) {
+      assert.ok(corner.x >= 0 && corner.x <= metrics.viewport && corner.y >= 0 && corner.y <= 900, `the whole city is on screen at ${width}px`);
+    }
   }
   await page.screenshot({ path: "output/dispatch-desktop.png", fullPage: true });
   const blocked = await browser.newPage();

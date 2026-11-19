@@ -2,8 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#10191f" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#0e1c33" />
     <meta name="description" content="Draw one delivery loop through a seeded city, then keep parcels moving for two minutes with three chances to rewire the route. Free, in the browser, with a new daily city." />
     <title>Loop Courier, a route-drawing delivery game</title>
     <meta property="og:type" content="website" />
@@ -14,98 +14,125 @@
     <meta property="og:image" content="https://loop-courier-game.vercel.app/assets/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Loop Courier: a glowing delivery loop joining colored pickup and dropoff stations on a night city map." />
+    <meta property="og:image:alt" content="Loop Courier: a white delivery loop joining red, blue and gold stations on a night transit map." />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <link rel="manifest" href="site.webmanifest" />
+    <link rel="preload" href="assets/fonts/overpass-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <a class="skip-link" href="#routeControls">Skip to dispatch controls</a>
-    <main id="app">
-      <header class="masthead">
-        <div class="brand">
-          <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-            <path d="M13 12h21v24H13V12Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round" />
-            <circle cx="13" cy="12" r="5" fill="currentColor" /><circle cx="34" cy="36" r="5" fill="currentColor" />
-            <path d="m29 8 5 4-5 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <h1>Loop Courier<span class="brand-period">.</span></h1>
-        </div>
-        <p class="tagline">Draw one delivery loop through the city. Your courier rides it for two minutes, and you get three chances to rewire it.</p>
-        <div class="city-actions">
-          <div class="personal-best"><span class="eyebrow">Personal best</span><span id="bestScore">0</span></div>
-          <button id="btnDaily" class="daily-button" type="button" title="Play the city shared by everyone today"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M6.5 2.5v4m7-4v4m-10 2h13M7 12h2m2 0h2" /></svg>Daily city</button>
-          <button id="btnNewSeed" type="button" title="Generate a new city (N)">New city <span aria-hidden="true">↗</span></button>
-        </div>
-      </header>
-      <section class="scoreboard" aria-label="Live run statistics">
-        <div class="shift-label"><span class="status-dot" aria-hidden="true"></span><span>The night shift</span></div>
-        <div class="stat score-stat"><span class="k">Score</span><span id="statScore" class="v">0</span></div>
-        <div class="stat"><span class="k">Time left</span><span id="statTime" class="v">2:00</span></div>
-        <div class="stat"><span class="k">Combo</span><span id="statCombo" class="v">0×</span></div>
-        <div class="stat"><span class="k">Delivered</span><span id="statDelivered" class="v">0</span></div>
-        <div class="stat"><span class="k">Missed</span><span id="statMissed" class="v">0</span></div>
-        <div class="stat"><span class="k">Splices</span><span id="statSplices" class="v">3</span></div>
-      </section>
+    <main id="app" data-mode="draw">
+      <div class="screen">
+        <canvas id="game" tabindex="0" role="application" aria-label="Loop Courier transit map" aria-describedby="gameInstructions accessibleState"></canvas>
+        <p id="gameInstructions" class="sr-only">Draw a closed route with a pointer or touch. Circle stations are pickups and square stations are dropoffs. Connect a matching color pair and close the loop, then dispatch your courier. You can also build a route with the station buttons under Build by station in the manifest.</p>
+        <p id="accessibleState" class="sr-only" aria-live="polite"></p>
 
-      <div class="dispatch-layout">
-        <section class="map-column" aria-label="City map">
-          <div class="map-toolbar">
-            <div class="map-heading"><h2>City network</h2><span id="seedBadge" class="seed-badge">Loading city</span></div>
-            <div class="map-tools">
-              <button id="btnTutorial" class="text-button" type="button" title="Show the field guide (T)">How to play <span aria-hidden="true">?</span></button>
-              <button id="btnFullscreen" class="icon-button" type="button" title="Toggle fullscreen (F)" aria-label="Toggle fullscreen" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg></button>
+        <header class="topbar">
+          <div class="brand">
+            <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <path d="M13 12h21v24H13V12Z" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round" />
+              <circle cx="13" cy="12" r="5.5" fill="#ff5a6e" /><circle cx="34" cy="36" r="5.5" fill="#4cc3ff" />
+            </svg>
+            <h1>Loop Courier</h1>
+          </div>
+          <button id="btnCity" class="city-plate" type="button" popovertarget="cityMenu" aria-haspopup="dialog" title="City options">
+            <span class="plate-code"><span id="seedBadge" class="plate-kind">Daily city</span><strong id="cityCode">METRO-7</strong></span>
+            <span class="plate-best">Best <span id="bestScore">none yet</span></span>
+            <svg class="plate-caret" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+          </button>
+          <div class="tools">
+            <button id="btnTutorial" class="icon-button" type="button" title="How to play (T)" aria-label="How to play"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.5" /><path d="M7.8 7.8a2.3 2.3 0 1 1 3.3 2.1c-.7.3-1.1.8-1.1 1.5v.4M10 14.3v.1" /></svg></button>
+            <button id="btnFullscreen" class="icon-button" type="button" title="Toggle fullscreen (F)" aria-label="Enter fullscreen" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg></button>
+          </div>
+
+          <div class="hud" role="group" aria-label="Shift status">
+            <div class="clock" id="clock" title="Time left in the shift">
+              <svg viewBox="0 0 48 48" aria-hidden="true"><circle class="clock-face" cx="24" cy="24" r="20" /><circle id="clockRing" class="clock-ring" cx="24" cy="24" r="20" pathLength="100" /></svg>
+              <span id="statTime" class="clock-time" aria-label="Time left">2:00</span>
+            </div>
+            <p class="score"><span id="statScore">0</span><span class="score-unit">pts</span></p>
+            <p id="statCombo" class="combo" data-live="false"><span class="sr-only">Combo </span>×<span id="comboCount">0</span></p>
+            <div class="splices" title="Splices left (S)">
+              <span id="statSplices" class="sr-only">3 splices left</span>
+              <svg class="splice-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 7h5c5 0 5 10 10 10h5M2 17h5c5 0 5-10 10-10h5" /></svg>
+              <span class="splice-token" aria-hidden="true"></span><span class="splice-token" aria-hidden="true"></span><span class="splice-token" aria-hidden="true"></span>
             </div>
           </div>
-          <div class="map-frame"><canvas id="game" width="960" height="600" tabindex="0" role="application" aria-label="Loop Courier transit map" aria-describedby="gameInstructions accessibleState"></canvas></div>
-          <p id="gameInstructions" class="sr-only">Draw a closed route with a pointer or touch. Circle stations are pickups and square stations are dropoffs. Connect a matching color pair and close the loop, then dispatch your courier. You can also build a route with the station buttons under Build by station in the dispatch controls.</p>
-          <p id="accessibleState" class="sr-only" aria-live="polite"></p>
-          <section id="routeControls" class="route-toolbar" aria-label="Route and dispatch controls" tabindex="-1">
-            <div class="route-toolbar-status"><span id="phaseLabel" class="phase-label">Planning</span><p id="routeStatus" class="route-status" role="status">A good shift starts with a loop.</p></div>
-            <div class="map-actions">
-              <div class="primary-actions"><button id="btnSuggest" type="button" title="Build a starter route through matching stations"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m10 2 2 5.5L18 10l-6 2.5L10 18l-2-5.5L2 10l6-2.5L10 2Z" /></svg>Starter route</button><button id="btnStart" class="primary-button dispatch-button" type="button" title="Dispatch your courier (Enter)">Dispatch courier <span aria-hidden="true">→</span></button></div>
-              <div class="build-actions"><button id="btnUndo" type="button" title="Undo the last route point (Backspace)">Undo</button><button id="btnCloseLoop" type="button" title="Connect the last point to the first">Close loop</button><button id="btnResetLoop" class="muted-button" type="button" title="Clear the route and redraw (R)">Clear</button></div>
-              <div class="run-actions"><button id="btnPause" type="button" title="Pause or resume (Space)">Pause <span aria-hidden="true">Ⅱ</span></button><button id="btnSplice" type="button" title="Choose two route edges to splice (S)">Splice route <kbd>S</kbd></button></div>
-            </div>
-            <div id="hint" class="hint" role="status" aria-live="polite"></div>
-          </section>
-          <section class="cargo-section" aria-labelledby="cargoHeading"><div class="section-heading"><h3 id="cargoHeading">On board</h3><span class="capacity-label">3 parcel capacity</span></div><div id="cargoStatus" class="cargo-status"><span class="cargo-summary">No parcels aboard · Courier awaiting dispatch</span></div></section>
-          <div class="map-caption">
-            <div class="map-legend" aria-label="Map legend"><span><i class="legend-pickup" aria-hidden="true"></i>Pickup</span><span><i class="legend-drop" aria-hidden="true"></i>Dropoff</span><span><i class="legend-route" aria-hidden="true"></i>Your route</span></div>
-            <span class="map-coordinate">One city. Your way around.</span>
+        </header>
+
+        <div id="cityMenu" class="city-menu" popover aria-label="City options">
+          <label class="seed"><span>City code</span><input id="seedInput" type="text" spellcheck="false" autocomplete="off" autocapitalize="characters" /></label>
+          <p class="city-menu-note">Anyone who opens the same code gets the same streets, orders and hazards.</p>
+          <div class="city-menu-actions">
+            <button id="btnDaily" type="button" title="Play the city shared by everyone today">Today’s city</button>
+            <button id="btnNewSeed" type="button" title="Generate a new city (N)">New city</button>
+            <button id="btnCopyLink" type="button" title="Copy a link to this city">Copy city link</button>
+            <button id="btnSound" type="button" aria-pressed="false">Sound off</button>
           </div>
-          <section id="tutorialDock" class="tutorial hidden" role="dialog" aria-labelledby="tutorialTitle" tabindex="-1">
-            <div class="tutorial-label">Field guide</div>
-            <div class="tHead"><h3 id="tutorialTitle" class="tTitle">Connect the network</h3><span id="tutorialStep" class="tStep">1 / 4</span></div>
-            <div id="tutorialBody" class="tBody"></div>
-            <div class="tActions"><button id="btnTutSkip" class="text-button" type="button">Skip guide</button><button id="btnTutNext" type="button">Next <span aria-hidden="true">→</span></button></div>
-          </section>
+        </div>
+
+        <div id="stage" class="stage" aria-hidden="true"></div>
+
+        <section id="routeControls" class="console" aria-label="Route and dispatch controls" tabindex="-1">
+          <div class="console-status">
+            <span id="phaseLabel" class="phase">Draw your route</span>
+            <p id="hint" class="hint" role="status" aria-live="polite"></p>
+          </div>
+          <div class="console-actions">
+            <div id="cargoStatus" class="cargo" aria-label="Parcels on board"></div>
+            <div class="plan-actions">
+              <button id="btnSuggest" type="button" title="Build a starter route through matching stations">Starter route</button>
+              <button id="btnUndo" type="button" title="Undo the last route point (Backspace)">Undo</button>
+              <button id="btnCloseLoop" type="button" title="Connect the last point to the first">Close loop</button>
+              <button id="btnResetLoop" type="button" title="Clear the route and redraw (R)">Clear</button>
+            </div>
+            <div class="run-actions">
+              <button id="btnSplice" type="button" title="Choose two route edges to splice (S)">Splice route</button>
+              <button id="btnPause" type="button" title="Pause or resume (Space)">Pause</button>
+            </div>
+            <button id="btnStart" class="dispatch" type="button" title="Dispatch your courier (Enter)">Dispatch courier</button>
+          </div>
         </section>
 
-        <aside id="hud" class="dispatch-sidebar" aria-label="Dispatch controls" tabindex="-1">
-          <div class="sidebar-heading"><h2>Route details</h2></div>
-          <section class="route-panel" aria-labelledby="routeHeading">
-            <div class="section-heading"><h3 id="routeHeading">Your route</h3><span id="statRoute" class="route-count">—</span></div>
-            <div class="route-metrics"><div><span class="k">Est. lap</span><strong id="routeLength">—</strong></div><div><span class="k">Stations</span><strong id="routeCoverage">0 connected</strong></div></div>
-            <div class="contracts" aria-label="Color contracts">
-              <div class="contract-row" data-color="red"><span class="contract-color"><i aria-hidden="true"></i>Red line</span><span id="contract-red" class="contract-state"></span></div>
-              <div class="contract-row" data-color="blue"><span class="contract-color"><i aria-hidden="true"></i>Blue line</span><span id="contract-blue" class="contract-state"></span></div>
-              <div class="contract-row" data-color="gold"><span class="contract-color"><i aria-hidden="true"></i>Gold line</span><span id="contract-gold" class="contract-state"></span></div>
-            </div>
-            <p class="contract-bonus">A longer loop through more stations brings more orders, and every extra color pays more per delivery.</p>
-            <details class="station-builder"><summary>Build by station<span aria-hidden="true">+</span></summary><p>Choose stations in order, then close your loop.</p><div id="stationPicker"></div></details>
-          </section>
-          <section class="feed-section" aria-labelledby="feedHeading"><div class="section-heading"><h3 id="feedHeading">Dispatch log</h3><span class="feed-live"><span aria-hidden="true"></span>Live</span></div><ul id="dispatchFeed" class="dispatch-feed" aria-live="polite" aria-relevant="additions"></ul></section>
-        </aside>
+        <section id="tutorialDock" class="guide hidden" role="dialog" aria-labelledby="tutorialTitle" tabindex="-1">
+          <div class="guide-head"><h2 id="tutorialTitle">Connect the network</h2><span id="tutorialStep" class="guide-step">1/4</span></div>
+          <p id="tutorialBody" class="guide-body"></p>
+          <div class="guide-actions"><button id="btnTutSkip" type="button">Skip guide</button><button id="btnTutNext" class="guide-next" type="button">Next</button></div>
+        </section>
       </div>
 
-      <footer class="desk-footer">
-        <div class="seed-controls"><label class="seed"><span>City code</span><input id="seedInput" type="text" spellcheck="false" autocomplete="off" aria-label="City seed code" /></label><button id="btnCopyLink" class="text-button" type="button" title="Copy a link to this city">Share city <span aria-hidden="true">↗</span></button></div>
-        <div class="footer-right"><span class="keyboard-hint"><kbd>Enter</kbd> dispatch <span>·</span> <kbd>Space</kbd> pause</span><button id="btnSound" class="text-button" type="button" aria-pressed="false">Sound off</button></div>
-      </footer>
-      <section id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1"><div class="card"><div class="eyebrow">Shift report</div><h2 id="modalTitle" class="mTitle">Round over</h2><div id="modalBody" class="mBody"></div><div class="share-row"><button id="btnShareResult" class="share-button" type="button">Share result <span aria-hidden="true">↗</span></button><p id="shareStatus" class="share-status" role="status"></p></div><div class="mActions"><button id="btnModalSecondary" type="button">New city</button><button id="btnModalReplan" type="button">Edit this route</button><button id="btnModalPrimary" class="primary-button" type="button">Run it again</button></div></div></section>
+      <aside id="hud" class="docket" aria-labelledby="docketTitle" tabindex="-1">
+        <div class="docket-head">
+          <h2 id="docketTitle">Manifest</h2>
+          <p id="routeStatus" class="docket-status" role="status">A good shift starts with a loop.</p>
+        </div>
+        <ul class="lines" aria-label="Color lines">
+          <li class="line" data-color="red"><i aria-hidden="true"></i><span class="line-name">Red line</span><span id="contract-red" class="line-state"></span></li>
+          <li class="line" data-color="blue"><i aria-hidden="true"></i><span class="line-name">Blue line</span><span id="contract-blue" class="line-state"></span></li>
+          <li class="line" data-color="gold"><i aria-hidden="true"></i><span class="line-name">Gold line</span><span id="contract-gold" class="line-state"></span></li>
+        </ul>
+        <p class="docket-row"><span>Lap</span><strong id="routeLength">not set</strong></p>
+        <p class="docket-row"><span>Stations</span><strong id="routeCoverage">0 of 12</strong></p>
+        <p class="docket-row"><span>Delivered</span><strong id="statDelivered">0</strong></p>
+        <p class="docket-row"><span>Missed</span><strong id="statMissed">0</strong></p>
+        <p class="docket-note">More stations bring more orders. Every extra color you connect pays more per delivery.</p>
+        <details class="station-builder"><summary>Build by station</summary><p>Choose stations in order, then close your loop.</p><div id="stationPicker"></div></details>
+        <h3 class="log-title">Dispatch radio</h3>
+        <ul id="dispatchFeed" class="log" aria-live="polite" aria-relevant="additions"></ul>
+      </aside>
+
+      <section id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
+        <div class="receipt">
+          <p class="receipt-brand">Loop Courier shift report</p>
+          <h2 id="modalTitle" class="receipt-title">Shift complete</h2>
+          <div id="modalBody" class="receipt-body"></div>
+          <div class="share-row"><button id="btnShareResult" type="button">Share result</button><p id="shareStatus" class="share-status" role="status"></p></div>
+          <div class="receipt-actions"><button id="btnModalSecondary" type="button">New city</button><button id="btnModalReplan" type="button">Edit this route</button><button id="btnModalPrimary" class="dispatch" type="button">Run it again</button></div>
+        </div>
+      </section>
     </main>
     <script type="module" src="main.js"></script>
   </body>

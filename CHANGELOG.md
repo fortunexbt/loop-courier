@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Redesigned the game screen around a full-screen night transit map. The seeded 960x600 city is unchanged and fitted to any screen, turned a quarter turn on portrait phones.
+- Each city code now draws its own street plan, river and parks, and stations light up in their line color once the route serves them.
+- Replaced the stat strip with a station clock, one score with a combo plate, and three splice tokens. Route coverage, tallies and the dispatch radio moved onto a manifest docket.
+- Countdown rings on pickups and destinations, a courier trail, a light that runs around a newly closed loop, delivery bursts and crossed-out misses.
+- The shift report prints as a receipt with the rank stamped on it. City options live behind the city plate in the top bar.
+- Self-hosted Overpass as the typeface.
 - First visit traces a sample loop on the map instead of opening the guide; Dispatch pulses once a loop is ready.
 - Station pings, a loop-close flash and short tones confirm each step of drawing.
 - Shift report can share the score with a link to the same city.

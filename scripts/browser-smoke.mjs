@@ -12,15 +12,14 @@ function readState(page) {
 }
 
 async function clickWorld(page, x, y, { touch = false } = {}) {
-  const canvas = page.locator("#game");
-  await canvas.scrollIntoViewIfNeeded();
-  const box = await canvas.boundingBox();
-  assert.ok(box, "game canvas must have a bounding box");
-  const size = await canvas.evaluate((element) => ({ width: element.width, height: element.height }));
-  const clientX = box.x + (x / size.width) * box.width;
-  const clientY = box.y + (y / size.height) * box.height;
-  if (touch) await page.touchscreen.tap(clientX, clientY);
-  else await page.mouse.click(clientX, clientY);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const point = await page.evaluate(([wx, wy]) => window.worldToClient(wx, wy), [x, y]);
+  if (touch) await page.touchscreen.tap(point.x, point.y);
+  else await page.mouse.click(point.x, point.y);
+}
+
+async function openCityMenu(page) {
+  if (!(await page.locator("#cityMenu").isVisible())) await page.locator("#btnCity").click();
 }
 
 async function drawBlueContract(page, options = {}) {
@@ -115,13 +114,16 @@ try {
   assert.equal(afterModalNew.modal.visible, false);
   console.log("desktop: modal actions verified");
 
+  await openCityMenu(page);
   await page.locator("#seedInput").fill("CONTROL-9");
   await page.locator("#seedInput").press("Tab");
   assert.equal((await readState(page)).seed, "CONTROL-9");
+  await openCityMenu(page);
   await page.locator("#btnCopyLink").click();
   await page.waitForFunction(() => /copied|blocked/i.test(document.querySelector("#hint")?.textContent || ""));
   assert.match(await page.locator("#hint").textContent(), /copied|blocked/i);
   const seedBeforeButton = (await readState(page)).seed;
+  await openCityMenu(page);
   await page.locator("#btnNewSeed").click();
   assert.notEqual((await readState(page)).seed, seedBeforeButton);
   assert.equal((await readState(page)).route.closed, false, "new city starts a fresh plan");

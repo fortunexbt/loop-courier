@@ -10,10 +10,9 @@ async function load(page) {
   await page.evaluate(() => window.advanceTime(0));
 }
 async function point(page, x, y) {
-  await page.locator("#game").scrollIntoViewIfNeeded();
-  const box = await page.locator("#game").boundingBox();
-  const size = await page.locator("#game").evaluate((canvas) => ({ width: canvas.width, height: canvas.height }));
-  await page.mouse.click(box.x + x * box.width / size.width, box.y + y * box.height / size.height);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const client = await page.evaluate(([wx, wy]) => window.worldToClient(wx, wy), [x, y]);
+  await page.mouse.click(client.x, client.y);
 }
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -79,14 +78,14 @@ try {
   await load(mobile);
   assert.equal(await mobile.locator("#bestScore").isVisible(), true);
   await mobile.locator("#btnSuggest").tap();
-  const canvas = await mobile.locator("#game").boundingBox();
+  const city = await mobile.evaluate(() => [window.worldToClient(0, 0), window.worldToClient(960, 600)]);
   const dispatch = await mobile.locator("#btnStart").boundingBox();
-  assert.ok(canvas.y >= 0 && dispatch.y + dispatch.height <= 844, "phone map and Dispatch must be visible together");
-  assert.ok(dispatch.y - canvas.y - canvas.height < 180, "dispatch must be next to the map");
+  assert.ok(city.every((corner) => corner.y >= 0 && corner.y <= dispatch.y), "the whole phone map sits above Dispatch");
+  assert.ok(dispatch.y + dispatch.height <= 844, "phone map and Dispatch must be visible together");
   await mobile.locator("#btnStart").tap();
   await mobile.locator("#btnPause").tap();
   assert.equal((await state(mobile)).mode, "paused");
-  await mobile.waitForFunction(() => document.getElementById("phaseLabel").textContent === "DISPATCH PAUSED");
+  await mobile.waitForFunction(() => document.getElementById("phaseLabel").textContent === "Dispatch paused");
   await mobile.evaluate(() => window.scrollTo(0, 0));
   await mobile.screenshot({ path: "output/mobile-playable.png", fullPage: true });
   console.log("Interaction smoke: guarded splices, keyboard splicing, guide pause, replan, cargo, and mobile controls passed.");

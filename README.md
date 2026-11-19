@@ -6,31 +6,31 @@
 
 Draw a delivery loop, send your courier into the city, and keep the parcels moving.
 
-[**Play it now**](https://loop-courier-game.vercel.app/) · [Try city METRO-7](https://loop-courier-game.vercel.app/?seed=METRO-7) · [Run locally](#run-locally)
+[**Play it now**](https://loop-courier-game.vercel.app/), try [city METRO-7](https://loop-courier-game.vercel.app/?seed=METRO-7), or [run it locally](#run-locally).
 
 Mouse, touch, or keyboard. No account needed.
 
 </div>
 
-[![Loop Courier mid-shift: a glowing route joins red, blue and gold pickups and dropoffs, with score, timer and dispatch log alongside the map.](docs/screenshot.webp)](https://loop-courier-game.vercel.app/)
+[![Loop Courier mid-shift: a white delivery loop crosses a night street map through red, blue and gold stations, with the shift clock and score above the map and a yellow manifest beside it.](docs/screenshot.webp)](https://loop-courier-game.vercel.app/)
 
 ## Your first shift
 
-1. **Plan a loop.** On your first visit a dotted line traces a sample loop on the map; drag your own the same way. Connect a circle pickup to a square dropoff of the same color, then close the route. Hit **Starter route** if you want to get moving immediately. Planning has no timer.
-2. **Dispatch your courier.** You have two minutes to deliver. The courier follows your loop automatically, carrying up to three parcels. Watch their destinations and deadlines under the map.
-3. **Adapt on the move.** Traffic jams slow you down; toll zones eat into your score. Use **Splice route** to reconnect two non-adjacent edges while the courier keeps moving. You get three splices per shift.
+1. **Plan a loop.** On your first visit a dotted line traces a sample loop on the map. Drag your own the same way. Connect a circle pickup to a square dropoff of the same color, then close the route. Hit **Starter route** if you want to get moving immediately. Planning has no timer.
+2. **Dispatch your courier.** You have two minutes to deliver. The courier follows your loop automatically, carrying up to three parcels. Each waiting parcel shows a countdown ring at its pickup, and each parcel on board marks its destination. The tags under the map list where they are going and how long is left.
+3. **Adapt on the move.** Traffic jams slow you down and toll zones eat into your score. Use **Splice route** to reconnect two non-adjacent edges while the courier keeps moving. You get three splices per shift.
 
 At the end, the shift report shows your score, deliveries, best combo and rank. **Share result** sends the score with a link to the same city (`?seed=`), so a friend plays the exact map you did. Or run the route again, or choose **Edit this route** to try a better plan.
 
 ## More coverage, or a faster lap?
 
-Connecting more colors increases the value of every delivery. But a longer loop can leave parcels circling the city until their deadlines expire. Consecutive deliveries build your combo; a missed parcel breaks it.
+Connecting more colors increases the value of every delivery. But a longer loop can leave parcels circling the city until their deadlines expire. Consecutive deliveries build your combo, and a missed parcel breaks it.
 
 Start with one reliable connection. Add another color. Then decide whether the extra distance earns its place.
 
 ## Same city. Better route.
 
-**Daily city** gives everyone the same map for the day, changing at midnight UTC. **Share city** copies a seeded link so a friend can try your city too. Retry resets the orders, hazards, and clock, giving you a consistent starting point for each attempt.
+Open the city plate in the top bar for the city options. **Today’s city** gives everyone the same map for the day, changing at midnight UTC. **Copy city link** copies a seeded link so a friend can try your city too. Every city code also gets its own street plan. Retry resets the orders, hazards, and clock, giving you a consistent starting point for each attempt.
 
 Personal bests stay on your device. Compare scores with friends by sharing the city; there is no online leaderboard.
 
@@ -49,12 +49,12 @@ All actions have on-screen controls. For keyboard play, focus the map first; tex
 | Cancel a splice | **Cancel splice** | `Escape` / `S` |
 | Pause / resume | **Pause** / **Resume** | `Space` |
 | Clear the route | **Clear** | `R` |
-| New city | **New city** | `N` |
-| Daily city | **Daily city** | — |
+| New city | City plate, then **New city** | `N` |
+| Today’s city | City plate, then **Today’s city** | |
 | Edit after a shift | **Edit this route** in the report | Tab to the button, then `Enter` |
-| Guide | **How to play** | `T` |
-| Fullscreen | Fullscreen icon | `F`; `Escape` exits |
-| Sound | **Sound on/off** | — |
+| Guide | **?** button | `T` |
+| Fullscreen | Fullscreen button | `F`; `Escape` exits |
+| Sound | City plate, then **Sound off** / **Sound on** | |
 
 A route needs at least three points and a matching pickup/dropoff pair. A splice needs at least four points and must keep at least one complete color connection. Parcels already in play keep their original destinations after a splice.
 
@@ -98,7 +98,7 @@ Set `LOOP_COURIER_BROWSER=webkit` to run the browser suites in WebKit. CI runs b
 - Sharing works through the city seed in the URL. Two people get the same map, orders and hazards, but each plays alone.
 - Sound uses Web Audio and starts off.
 
-Built with Canvas, JavaScript modules, and browser APIs. No runtime dependencies.
+Built with Canvas, JavaScript modules, and browser APIs. No runtime dependencies. The typeface is [Overpass](https://github.com/RedHatOfficial/Overpass), self-hosted under the SIL Open Font License (`assets/fonts/OFL.txt`).
 
 For tests, project structure, and deployment, see [Contributing](CONTRIBUTING.md). Changes are tracked in the [changelog](CHANGELOG.md).
 

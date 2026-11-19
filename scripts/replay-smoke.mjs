@@ -8,7 +8,7 @@ try {
   await page.addInitScript(() => {
     // Raster output is checked by browser-smoke; this suite exercises the real
     // RAF/simulation path across thousands of frames without replaying pixels.
-    for (const method of ["fillRect", "fill", "stroke", "fillText"]) {
+    for (const method of ["fillRect", "fill", "stroke", "fillText", "strokeText", "drawImage"]) {
       CanvasRenderingContext2D.prototype[method] = () => {};
     }
     let time = 0;
